@@ -27,6 +27,9 @@ type Node struct {
 	httpPort      int
 	discoveryPort int
 
+	cfgPath string          // empty when launched with -dir (legacy)
+	cfg     *config.Config  // live copy for mutation
+
 	groups  map[string][]config.PathSpec // group name → specs
 	entries []index.SyncEntry            // flattened, for watcher + Build
 
@@ -42,8 +45,10 @@ type Node struct {
 	done chan struct{}
 }
 
-// New creates a Node from a Config.
-func New(cfg *config.Config) (*Node, error) {
+// New creates a Node from a Config. cfgPath is the path to the TOML file on
+// disk; pass "" when launched with the legacy -dir flag (disables config
+// mutation).
+func New(cfg *config.Config, cfgPath string) (*Node, error) {
 	groups, err := config.ParseAllSpecs(cfg.Syncs)
 	if err != nil {
 		return nil, err
@@ -72,6 +77,8 @@ func New(cfg *config.Config) (*Node, error) {
 		id:            id,
 		httpPort:      cfg.Node.Port,
 		discoveryPort: cfg.Node.DiscoveryPort,
+		cfgPath:       cfgPath,
+		cfg:           cfg,
 		groups:        groups,
 		entries:       entries,
 		peers:         make(map[string]discovery.Peer),
@@ -92,7 +99,8 @@ func (n *Node) Start() error {
 	}
 	log.Printf("indexed %d existing file(s)", len(n.fileIdx))
 
-	n.server = transfer.NewServer(n.httpPort, n.snapshot, n.resolveLocal)
+	n.server = transfer.NewServer(n.httpPort, n.snapshot, n.resolveLocal,
+		n.Status, n.SyncGroups, n.AddGroup, n.RemoveGroup)
 	if err := n.server.Start(); err != nil {
 		return err
 	}
@@ -408,4 +416,143 @@ func mustGenerateID() string {
 		panic(err)
 	}
 	return hex.EncodeToString(b)
+}
+
+// Status returns a snapshot of this node's runtime state.
+func (n *Node) Status() transfer.StatusInfo {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	peers := make([]transfer.PeerInfo, 0, len(n.peers))
+	for _, p := range n.peers {
+		peers = append(peers, transfer.PeerInfo{ID: p.ID, Addr: p.Addr, Port: p.Port})
+	}
+	return transfer.StatusInfo{
+		ID:            n.id,
+		HTTPPort:      n.httpPort,
+		DiscoveryPort: n.discoveryPort,
+		FileCount:     len(n.fileIdx),
+		Peers:         peers,
+	}
+}
+
+// SyncGroups returns a copy of the currently configured sync groups.
+func (n *Node) SyncGroups() []config.SyncGroup {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	result := make([]config.SyncGroup, len(n.cfg.Syncs))
+	copy(result, n.cfg.Syncs)
+	return result
+}
+
+// AddGroup adds a new sync group at runtime, re-indexes its files, and
+// persists the change to disk (when a config file path is set).
+func (n *Node) AddGroup(name string, paths []string) error {
+	n.mu.Lock()
+
+	for _, g := range n.cfg.Syncs {
+		if g.Name == name {
+			n.mu.Unlock()
+			return fmt.Errorf("group %q already exists", name)
+		}
+	}
+
+	specs := make([]config.PathSpec, 0, len(paths))
+	for _, raw := range paths {
+		ps, err := config.ParsePathSpec(raw)
+		if err != nil {
+			n.mu.Unlock()
+			return fmt.Errorf("group %q: %w", name, err)
+		}
+		specs = append(specs, ps)
+	}
+
+	for _, ps := range specs {
+		if err := os.MkdirAll(ps.Dir, 0755); err != nil {
+			n.mu.Unlock()
+			return fmt.Errorf("mkdir %s: %w", ps.Dir, err)
+		}
+	}
+
+	n.cfg.Syncs = append(n.cfg.Syncs, config.SyncGroup{Name: name, Paths: paths})
+	n.groups[name] = specs
+
+	var newEntries []index.SyncEntry
+	for _, ps := range specs {
+		entry := index.SyncEntry{GroupName: name, Dir: ps.Dir, Patterns: ps.Patterns}
+		newEntries = append(newEntries, entry)
+		n.entries = append(n.entries, entry)
+	}
+
+	newIdx, err := index.BuildFromGroups(newEntries)
+	if err != nil {
+		n.mu.Unlock()
+		return fmt.Errorf("index group %q: %w", name, err)
+	}
+	for k, v := range newIdx {
+		n.fileIdx[k] = v
+	}
+
+	if n.watcher != nil {
+		for _, ps := range specs {
+			_ = filepath.Walk(ps.Dir, func(path string, info os.FileInfo, walkErr error) error {
+				if walkErr == nil && info.IsDir() {
+					n.watcher.Add(path)
+				}
+				return nil
+			})
+		}
+	}
+
+	n.mu.Unlock()
+
+	if n.cfgPath != "" {
+		return config.Save(n.cfgPath, n.cfg)
+	}
+	return nil
+}
+
+// RemoveGroup removes a sync group at runtime and persists the change to disk
+// (when a config file path is set). Watched directories are not unwatched;
+// orphaned events are silently ignored by findVirtualPath.
+func (n *Node) RemoveGroup(name string) error {
+	n.mu.Lock()
+
+	found := false
+	syncs := n.cfg.Syncs[:0]
+	for _, g := range n.cfg.Syncs {
+		if g.Name == name {
+			found = true
+		} else {
+			syncs = append(syncs, g)
+		}
+	}
+	if !found {
+		n.mu.Unlock()
+		return fmt.Errorf("group %q not found", name)
+	}
+	n.cfg.Syncs = syncs
+
+	prefix := name + "/"
+	for k := range n.fileIdx {
+		if strings.HasPrefix(k, prefix) {
+			delete(n.fileIdx, k)
+		}
+	}
+
+	entries := n.entries[:0]
+	for _, e := range n.entries {
+		if e.GroupName != name {
+			entries = append(entries, e)
+		}
+	}
+	n.entries = entries
+
+	delete(n.groups, name)
+
+	n.mu.Unlock()
+
+	if n.cfgPath != "" {
+		return config.Save(n.cfgPath, n.cfg)
+	}
+	return nil
 }

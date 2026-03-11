@@ -3,6 +3,8 @@
 package transfer
 
 import (
+	_ "embed"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,22 +13,62 @@ import (
 	"os"
 	"strings"
 
+	"retrosync/internal/config"
 	"retrosync/internal/index"
 )
+
+//go:embed ui.html
+var uiHTML string
+
+// PeerInfo describes a connected peer node.
+type PeerInfo struct {
+	ID   string `json:"id"`
+	Addr string `json:"addr"`
+	Port int    `json:"port"`
+}
+
+// StatusInfo holds the runtime status of a node.
+type StatusInfo struct {
+	ID            string     `json:"id"`
+	HTTPPort      int        `json:"http_port"`
+	DiscoveryPort int        `json:"discovery_port"`
+	FileCount     int        `json:"file_count"`
+	Peers         []PeerInfo `json:"peers"`
+}
 
 // Server serves the local file index and individual files over HTTP.
 type Server struct {
 	resolveLocal func(virtualPath string) (absPath string, ok bool)
 	port         int
 	getIndex     func() index.Index
+	getStatus    func() StatusInfo
+	getSyncs     func() []config.SyncGroup
+	addGroup     func(name string, paths []string) error
+	removeGroup  func(name string) error
 	srv          *http.Server
 }
 
 // NewServer creates a Server. getIndex is called on each /index request so the
 // response is always current. resolveLocal maps a virtual path to the absolute
 // OS path of the file (looked up from the index, not derived from the URL).
-func NewServer(port int, getIndex func() index.Index, resolveLocal func(string) (string, bool)) *Server {
-	return &Server{port: port, getIndex: getIndex, resolveLocal: resolveLocal}
+func NewServer(
+	port int,
+	getIndex func() index.Index,
+	resolveLocal func(string) (string, bool),
+	getStatus func() StatusInfo,
+	getSyncs func() []config.SyncGroup,
+	addGroup func(string, []string) error,
+	removeGroup func(string) error,
+) *Server {
+	return &Server{
+		port:         port,
+		getIndex:     getIndex,
+		resolveLocal: resolveLocal,
+		getStatus:    getStatus,
+		getSyncs:     getSyncs,
+		addGroup:     addGroup,
+		removeGroup:  removeGroup,
+	}
 }
 
 // Start begins listening in a background goroutine.
@@ -34,6 +76,11 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/index", s.handleIndex)
 	mux.HandleFunc("/files/", s.handleFile)
+	mux.HandleFunc("/ui", s.handleUI)
+	mux.HandleFunc("/api/status", s.handleStatus)
+	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/config/groups", s.handleGroups)
+	mux.HandleFunc("/api/config/groups/", s.handleGroupByName)
 
 	s.srv = &http.Server{Addr: fmt.Sprintf(":%d", s.port), Handler: mux}
 
@@ -82,4 +129,68 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, absPath)
+}
+
+func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, uiHTML)
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.getStatus())
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.getSyncs())
+}
+
+func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Name  string   `json:"name"`
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.Name == "" || len(body.Paths) == 0 {
+		http.Error(w, "name and paths are required", http.StatusBadRequest)
+		return
+	}
+	if err := s.addGroup(body.Name, body.Paths); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleGroupByName(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/api/config/groups/")
+	if name == "" {
+		http.Error(w, "group name required", http.StatusBadRequest)
+		return
+	}
+	if err := s.removeGroup(name); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
 }

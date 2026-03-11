@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -16,8 +17,8 @@ type NodeConfig struct {
 
 // SyncGroup maps a named group to one or more path/pattern entries.
 type SyncGroup struct {
-	Name  string   `toml:"name"`
-	Paths []string `toml:"paths"`
+	Name  string   `toml:"name"  json:"name"`
+	Paths []string `toml:"paths" json:"paths"`
 }
 
 // Config is the top-level TOML config structure.
@@ -30,6 +31,16 @@ type Config struct {
 type PathSpec struct {
 	Dir      string   // absolute OS path
 	Patterns []string // e.g. ["*.srm"]; ["*"] means all files
+}
+
+// Save encodes cfg to the TOML file at path, overwriting it.
+func Save(path string, cfg *Config) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return toml.NewEncoder(f).Encode(cfg)
 }
 
 // Load decodes a TOML config file.

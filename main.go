@@ -38,7 +38,7 @@ func main() {
 		cfg.Node.DiscoveryPort = *discoveryPort
 	}
 
-	n, err := node.New(cfg)
+	n, err := node.New(cfg, *configFile)
 	if err != nil {
 		log.Fatalf("init error: %v", err)
 	}

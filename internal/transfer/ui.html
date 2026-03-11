@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RetroSync</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; padding: 1.5rem; }
+  h1 { font-size: 1.4rem; color: #7ec8e3; margin-bottom: 1.5rem; letter-spacing: 0.05em; }
+  h2 { font-size: 1rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.75rem; }
+  .panel { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 1.25rem; margin-bottom: 1.25rem; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; font-size: 0.9rem; }
+  .kv .label { color: #888; }
+  .kv .value { color: #e0e0e0; font-family: monospace; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th { text-align: left; color: #888; font-weight: normal; padding: 0.3rem 0.5rem; border-bottom: 1px solid #2a2a2a; }
+  td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #1e1e1e; font-family: monospace; }
+  .empty { color: #555; font-style: italic; font-size: 0.85rem; }
+  .group-item { margin-bottom: 0.75rem; padding: 0.75rem; background: #111; border: 1px solid #222; border-radius: 4px; }
+  .group-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
+  .group-name { font-weight: 600; color: #7ec8e3; font-family: monospace; }
+  .group-paths { font-size: 0.82rem; color: #888; font-family: monospace; }
+  .group-paths span { display: block; }
+  button { cursor: pointer; border: none; border-radius: 4px; font-size: 0.82rem; padding: 0.3rem 0.7rem; }
+  .btn-remove { background: #3a1a1a; color: #e07070; }
+  .btn-remove:hover { background: #4a2020; }
+  .btn-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-add { background: #1a3a1a; color: #70e070; padding: 0.45rem 1rem; font-size: 0.9rem; }
+  .btn-add:hover { background: #204a20; }
+  .btn-add:disabled { opacity: 0.4; cursor: not-allowed; }
+  .form-row { display: flex; flex-direction: column; gap: 0.5rem; }
+  label { font-size: 0.82rem; color: #888; }
+  input[type=text], textarea {
+    background: #111; border: 1px solid #333; color: #e0e0e0;
+    border-radius: 4px; padding: 0.45rem 0.6rem; font-family: monospace;
+    font-size: 0.88rem; width: 100%;
+  }
+  input[type=text]:focus, textarea:focus { outline: none; border-color: #7ec8e3; }
+  textarea { resize: vertical; min-height: 80px; }
+  .error { color: #e07070; font-size: 0.85rem; margin-top: 0.5rem; }
+  .refresh-info { font-size: 0.78rem; color: #444; text-align: right; margin-top: -0.5rem; margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+<h1>RetroSync</h1>
+<div class="refresh-info" id="refresh-info">Loading...</div>
+
+<div class="panel" id="node-panel">
+  <h2>Node Info</h2>
+  <div class="kv" id="node-kv"><span class="label">Loading...</span><span></span></div>
+</div>
+
+<div class="panel">
+  <h2>Connected Peers</h2>
+  <div id="peers-container"><span class="empty">Loading...</span></div>
+</div>
+
+<div class="panel">
+  <h2>Sync Groups</h2>
+  <div id="groups-container"><span class="empty">Loading...</span></div>
+
+  <hr style="border-color:#222;margin:1rem 0;">
+  <h2 style="margin-bottom:0.75rem;">Add Group</h2>
+  <div class="form-row">
+    <div>
+      <label for="add-name">Group name</label>
+      <input type="text" id="add-name" placeholder="saves" />
+    </div>
+    <div>
+      <label for="add-paths">Paths (one per line)</label>
+      <textarea id="add-paths" placeholder="C:\RetroArch\saves[*.srm;*.sav]"></textarea>
+    </div>
+    <div>
+      <button class="btn-add" id="add-btn" onclick="addGroup()">Add Group</button>
+      <div class="error" id="add-error"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let readOnly = false;
+
+async function fetchAll() {
+  try {
+    const [statusRes, configRes] = await Promise.all([
+      fetch('/api/status'),
+      fetch('/api/config'),
+    ]);
+    if (!statusRes.ok || !configRes.ok) throw new Error('fetch failed');
+    const status = await statusRes.json();
+    const groups = await configRes.json();
+    renderStatus(status);
+    renderGroups(groups);
+    document.getElementById('refresh-info').textContent =
+      'Last updated: ' + new Date().toLocaleTimeString() + ' (auto-refresh 15s)';
+  } catch (e) {
+    document.getElementById('refresh-info').textContent = 'Error loading data: ' + e.message;
+  }
+}
+
+function renderStatus(s) {
+  const kv = document.getElementById('node-kv');
+  kv.innerHTML = `
+    <span class="label">ID</span><span class="value">${esc(s.id)}</span>
+    <span class="label">HTTP port</span><span class="value">${s.http_port}</span>
+    <span class="label">Discovery port</span><span class="value">${s.discovery_port}</span>
+    <span class="label">Indexed files</span><span class="value">${s.file_count}</span>
+  `;
+
+  const container = document.getElementById('peers-container');
+  const peers = s.peers || [];
+  if (peers.length === 0) {
+    container.innerHTML = '<span class="empty">No peers connected</span>';
+    return;
+  }
+  let html = '<table><thead><tr><th>ID</th><th>Address</th><th>Port</th></tr></thead><tbody>';
+  for (const p of peers) {
+    html += `<tr><td>${esc(p.id)}</td><td>${esc(p.addr)}</td><td>${p.port}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function renderGroups(groups) {
+  const container = document.getElementById('groups-container');
+  if (!groups || groups.length === 0) {
+    container.innerHTML = '<span class="empty">No sync groups configured</span>';
+    return;
+  }
+  let html = '';
+  for (const g of groups) {
+    const pathsHtml = (g.paths || []).map(p => `<span>${esc(p)}</span>`).join('');
+    html += `
+      <div class="group-item">
+        <div class="group-header">
+          <span class="group-name">${esc(g.name)}</span>
+          <button class="btn-remove" onclick="removeGroup('${esc(g.name)}')"
+            ${readOnly ? 'disabled title="Read-only: no config file"' : ''}>Remove</button>
+        </div>
+        <div class="group-paths">${pathsHtml}</div>
+      </div>`;
+  }
+  container.innerHTML = html;
+}
+
+async function removeGroup(name) {
+  if (!confirm('Remove group "' + name + '"?')) return;
+  const res = await fetch('/api/config/groups/' + encodeURIComponent(name), { method: 'DELETE' });
+  if (!res.ok) {
+    const msg = await res.text();
+    alert('Error: ' + msg);
+    return;
+  }
+  await fetchAll();
+}
+
+async function addGroup() {
+  const name = document.getElementById('add-name').value.trim();
+  const rawPaths = document.getElementById('add-paths').value;
+  const paths = rawPaths.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const errEl = document.getElementById('add-error');
+  errEl.textContent = '';
+
+  if (!name) { errEl.textContent = 'Group name is required.'; return; }
+  if (paths.length === 0) { errEl.textContent = 'At least one path is required.'; return; }
+
+  const res = await fetch('/api/config/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, paths }),
+  });
+  if (!res.ok) {
+    const msg = await res.text();
+    errEl.textContent = 'Error: ' + msg;
+    return;
+  }
+  document.getElementById('add-name').value = '';
+  document.getElementById('add-paths').value = '';
+  await fetchAll();
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Detect read-only mode by trying to add with a sentinel
+async function detectReadOnly() {
+  // We probe by checking if addGroup would say "no config file"
+  // Simpler: just let the error surface naturally on attempt.
+  // Mark read-only only after a 404/error mentioning config.
+}
+
+fetchAll();
+setInterval(fetchAll, 15000);
+</script>
+</body>
+</html>
