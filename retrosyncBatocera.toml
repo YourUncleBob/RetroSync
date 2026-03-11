@@ -1,0 +1,23 @@
+# RetroSync configuration file — Batocera
+
+[node]
+port           = 9877
+discovery_port = 9876
+
+[[sync]]
+name  = "snes-saves"
+paths = [
+    "/userdata/saves/snes/[*.srm;*.state;*.png]",
+]
+
+[[sync]]
+name  = "gba-saves"
+paths = [
+    "/userdata/saves/gba/[*.srm;*.state;*.png]",
+]
+
+[[sync]]
+name  = "n64-saves"
+paths = [
+    "/userdata/saves/n64/[*.srm;*.fla;*.mpk;*.state;*.png]",
+]

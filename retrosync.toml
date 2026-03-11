@@ -1,0 +1,34 @@
+# RetroSync configuration file
+
+[node]
+port           = 9877
+discovery_port = 9876
+
+# Each [[sync]] block defines a named group of files to sync.
+# Files are shared with peers as "<group-name>/<filename>".
+# Peers map the same group name to their own local paths.
+#
+# Path format:  "path/to/dir/"               — sync all files in dir
+#               "path/to/dir/[*.srm]"         — sync only .srm files
+#               "path/to/dir/[*.state;*.png]" — sync .state and .png files
+
+[[sync]]
+name  = "snes-saves"
+paths = [
+    "J:/RetroBat/saves/snes/[*.srm]",
+    "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]",
+]
+
+[[sync]]
+name  = "gba-saves"
+paths = [
+    "J:/RetroBat/saves/gba/[*.srm]",
+    "J:/RetroBat/saves/gba/libretro.mgba/[*.state;*.png]",
+]
+
+[[sync]]
+name  = "n64-saves"
+paths = [
+    "J:/RetroBat/saves/n64/[*.srm;*.fla;*.mpk]",
+    "J:/RetroBat/saves/n64/libretro.mupen64plus_next/[*.state;*.png]",
+]
