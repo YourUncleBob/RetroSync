@@ -1,5 +1,7 @@
 package config
 
+// This package uses toml to save and load a config file. The config file is used to define what files should be synced.
+
 import (
 	"fmt"
 	"os"

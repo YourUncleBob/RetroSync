@@ -27,8 +27,8 @@ type Node struct {
 	httpPort      int
 	discoveryPort int
 
-	cfgPath string          // empty when launched with -dir (legacy)
-	cfg     *config.Config  // live copy for mutation
+	cfgPath string         // empty when launched with -dir (legacy)
+	cfg     *config.Config // live copy for mutation
 
 	groups  map[string][]config.PathSpec // group name → specs
 	entries []index.SyncEntry            // flattened, for watcher + Build

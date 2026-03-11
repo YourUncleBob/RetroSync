@@ -1,0 +1,155 @@
+// Package discovery implements UDP broadcast-based peer discovery on a LAN.
+// Each node broadcasts a small JSON beacon every 5 seconds; peers that hear
+// an unknown node ID call the onPeer callback once.
+package discovery
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"sync"
+	"time"
+)
+
+const broadcastIP = "255.255.255.255"
+
+// Peer represents a discovered remote node.
+type Peer struct {
+	ID   string `json:"id"`
+	Addr string `json:"addr"` // IPv4 address
+	Port int    `json:"port"` // HTTP server port
+}
+
+// Discovery handles sending and receiving peer beacons.
+type Discovery struct {
+	nodeID        string
+	httpPort      int
+	discoveryPort int
+
+	mu     sync.Mutex
+	peers  map[string]Peer
+	onPeer func(Peer)
+
+	done chan struct{}
+}
+
+// New creates a Discovery instance. onPeer is called once per new peer found.
+func New(nodeID string, httpPort, discoveryPort int, onPeer func(Peer)) *Discovery {
+	return &Discovery{
+		nodeID:        nodeID,
+		httpPort:      httpPort,
+		discoveryPort: discoveryPort,
+		peers:         make(map[string]Peer),
+		onPeer:        onPeer,
+		done:          make(chan struct{}),
+	}
+}
+
+// Start launches the broadcast and listen goroutines.
+func (d *Discovery) Start() error {
+	go d.broadcast()
+	go d.listen()
+	return nil
+}
+
+// Stop shuts down discovery.
+func (d *Discovery) Stop() {
+	close(d.done)
+}
+
+// localIP returns the primary non-loopback IPv4 address by attempting a UDP
+// "connection" to an external address (no packets are actually sent).
+func localIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "127.0.0.1"
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String()
+}
+
+func (d *Discovery) broadcast() {
+	addr := &net.UDPAddr{IP: net.ParseIP(broadcastIP), Port: d.discoveryPort}
+	conn, err := net.DialUDP("udp4", nil, addr)
+	if err != nil {
+		log.Printf("discovery: broadcast dial error: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	beacon := Peer{ID: d.nodeID, Port: d.httpPort}
+
+	send := func() {
+		beacon.Addr = localIP()
+		data, _ := json.Marshal(beacon)
+		conn.Write(data)
+	}
+
+	send() // immediate first broadcast
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			send()
+		case <-d.done:
+			return
+		}
+	}
+}
+
+func (d *Discovery) listen() {
+	addrStr := fmt.Sprintf("0.0.0.0:%d", d.discoveryPort)
+	lc := net.ListenConfig{Control: reusePort}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", addrStr)
+	if err != nil {
+		log.Printf("discovery: listen error: %v", err)
+		return
+	}
+	conn := pc.(*net.UDPConn)
+	defer conn.Close()
+
+	// Unblock ReadFromUDP when done.
+	go func() {
+		<-d.done
+		conn.Close()
+	}()
+
+	buf := make([]byte, 2048)
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			select {
+			case <-d.done:
+				return
+			default:
+				continue
+			}
+		}
+
+		var peer Peer
+		if err := json.Unmarshal(buf[:n], &peer); err != nil {
+			continue
+		}
+		if peer.ID == d.nodeID {
+			continue // ignore own beacon
+		}
+
+		d.mu.Lock()
+		_, known := d.peers[peer.ID]
+		if !known {
+			d.peers[peer.ID] = peer
+		}
+		d.mu.Unlock()
+
+		if !known {
+			log.Printf("discovery: found peer %s at %s:%d", peer.ID, peer.Addr, peer.Port)
+			if d.onPeer != nil {
+				go d.onPeer(peer)
+			}
+		}
+	}
+}

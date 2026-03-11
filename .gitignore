@@ -28,5 +28,13 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
+.idea/
 # .vscode/
+
+# Built binaries
+retrosync
+retrosync-linux-amd64
+retrosync-linux-arm64
+
+# Claude Code
+.claude/
