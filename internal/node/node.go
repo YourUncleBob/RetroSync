@@ -104,6 +104,7 @@ func (n *Node) Start() error {
 	if err := n.server.Start(); err != nil {
 		return err
 	}
+	log.Printf("web UI: http://localhost:%d/ui", n.httpPort)
 
 	n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, n.onPeerDiscovered)
 	if err := n.disc.Start(); err != nil {
