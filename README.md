@@ -1,10 +1,10 @@
 # RetroSync
 
-Primarily used to sync save files between multiple Batocera or Retrobat systems.
+A golang file sync system that is primarily used to sync save files between multiple Batocera or Retrobat systems. Needs to run on all systems that will be syncing their files to each other.
 I investigates using Syncthing, but ran into issues where the file structure used by Batocera differs slightly from that of Retrobat, making it difficult to share all the save files. I found no good way between Syncthings .stignore file or symbolic links to sync all of these files so that all files were shared between Batocera and Retrobat, but some files were in different folders in Retrobat than they were in Batocera.
 
 ## Status
-RetroSync is currently a work in progress in the early test stages. At this point, it's mostly Claude generated code. It passes initial tests, but itsn't ready for use. 
+RetroSync is currently a **work in progress in the early test stages**. At this point, it's mostly Claude generated code that I'm in the process of reviewing, testing and modifying. It passes initial tests, but itsn't ready for use. 
 
 ## Example problem:
 
@@ -83,9 +83,40 @@ Because of my setup at home, it made the most sense for me to use an authoritati
 If desired by others, I could add the ability to run peer-to-peer, like Syncthing does. In general, this was intended to sync smallish files infrequently, so it doesn't attempt to be as failsafe as Syncthing.
 I also plan on adding a client-side command to completely refresh all save files from the server, wiping out any local saves.
 
+## Running
+retrosync -config *config filename*
+example:
+    retrosync -config retrosync.toml
+The config file is a toml file and is currently required. Will be adding a feature so that config file is auto created if it does not exists
+
+## Building
+### On PC from CMD prompt
+    PC
+    set GOOS=windows&& set GOARCH=amd64&& go build -o dist\retrosync-windows-amd64.exe .
+    
+    Batocera X86_64
+    set GOOS=linux&& set GOARCH=amd64&& go build -o dist\retrosync-linux-amd64.exe .
+
+    Batocera Raspberry PI 5
+    set GOOS=linux&& set GOARCH=arm64&& go build -o dist\retrosync-linux-arm64.exe .
+### From GitBash Prompt
+    PC
+    GOOS=windows GOARCH=amd64 go build -o dist/retrosync-windows-amd64.exe .
+    
+    Batocera X86_64
+    GOOS=linux GOARCH=amd64 go build -o dist/retrosync-linux-amd64.exe .
+    
+    Batocera Raspberry PI 5
+    GOOS=linux GOARCH=arm64 go build -o dist/retrosync-linux-arm64.exe .
+    
+## Web Monitoring/Configuration
+Once running, a web UI can be brought up at http://localhost:9877/ui. This shows the status of the system, what it's connected to and all of the current sync groups that are defined. It also allows for new sync groups to be created.
+
+
 ## Next Steps
 My current plan is:
 * Test on multiple platforms (Retrobat PC, Batocera PC, Batocera Raspberry PI 5)
+* Add a feature to auto create a config file if none exists
 * Add ability to pause individual rules to the web status page
 * Currently the syncing doesn't recursively go into folders. It only syncs files directly in specified folders. Add the ability to specify that a path should include recursion.
 * Authoritative server support - The idea being that the files on the server can be cleaned up, reduced when there are too many, etc.
