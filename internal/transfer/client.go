@@ -88,3 +88,34 @@ func (c *Client) FetchFile(addr string, port int, virtualPath string, resolver f
 
 	return os.Rename(tmpName, destPath)
 }
+
+// PushFile uploads a local file to the remote server via PUT /files/<virtualPath>.
+func (c *Client) PushFile(addr string, port int, virtualPath, localPath string) error {
+	f, err := os.Open(localPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	u := &url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("%s:%d", addr, port),
+		Path:   "/files/" + virtualPath,
+	}
+	req, err := http.NewRequest(http.MethodPut, u.String(), f)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned %s for PUT %s", resp.Status, virtualPath)
+	}
+	return nil
+}

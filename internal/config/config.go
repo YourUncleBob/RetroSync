@@ -13,8 +13,10 @@ import (
 
 // NodeConfig holds network settings.
 type NodeConfig struct {
-	Port          int `toml:"port"`
-	DiscoveryPort int `toml:"discovery_port"`
+	Port          int    `toml:"port"`
+	DiscoveryPort int    `toml:"discovery_port"`
+	Role          string `toml:"role"`        // "server" or "client"; "" = legacy P2P
+	ServerAddr    string `toml:"server_addr"` // client only — "host:port" of the server
 }
 
 // SyncGroup maps a named group to one or more path/pattern entries.

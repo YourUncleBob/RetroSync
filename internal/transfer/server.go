@@ -8,9 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"retrosync/internal/config"
@@ -38,36 +40,41 @@ type StatusInfo struct {
 
 // Server serves the local file index and individual files over HTTP.
 type Server struct {
-	resolveLocal func(virtualPath string) (absPath string, ok bool)
-	port         int
-	getIndex     func() index.Index
-	getStatus    func() StatusInfo
-	getSyncs     func() []config.SyncGroup
-	addGroup     func(name string, paths []string) error
-	removeGroup  func(name string) error
-	srv          *http.Server
+	resolveLocal  func(virtualPath string) (absPath string, ok bool)
+	routeIncoming func(virtualPath string) (destPath string, err error)
+	port          int
+	getIndex      func() index.Index
+	getStatus     func() StatusInfo
+	getSyncs      func() []config.SyncGroup
+	addGroup      func(name string, paths []string) error
+	removeGroup   func(name string) error
+	srv           *http.Server
 }
 
 // NewServer creates a Server. getIndex is called on each /index request so the
 // response is always current. resolveLocal maps a virtual path to the absolute
 // OS path of the file (looked up from the index, not derived from the URL).
+// routeIncoming maps a virtual path to a destination path using config (used
+// for PUT uploads; works even for files not yet in the index).
 func NewServer(
 	port int,
 	getIndex func() index.Index,
 	resolveLocal func(string) (string, bool),
+	routeIncoming func(string) (string, error),
 	getStatus func() StatusInfo,
 	getSyncs func() []config.SyncGroup,
 	addGroup func(string, []string) error,
 	removeGroup func(string) error,
 ) *Server {
 	return &Server{
-		port:         port,
-		getIndex:     getIndex,
-		resolveLocal: resolveLocal,
-		getStatus:    getStatus,
-		getSyncs:     getSyncs,
-		addGroup:     addGroup,
-		removeGroup:  removeGroup,
+		port:          port,
+		getIndex:      getIndex,
+		resolveLocal:  resolveLocal,
+		routeIncoming: routeIncoming,
+		getStatus:     getStatus,
+		getSyncs:      getSyncs,
+		addGroup:      addGroup,
+		removeGroup:   removeGroup,
 	}
 }
 
@@ -116,19 +123,54 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	absPath, ok := s.resolveLocal(virtualPath)
-	if !ok {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
+	switch r.Method {
+	case http.MethodGet:
+		absPath, ok := s.resolveLocal(virtualPath)
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		info, err := os.Stat(absPath)
+		if err != nil || info.IsDir() {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.ServeFile(w, r, absPath)
 
-	info, err := os.Stat(absPath)
-	if err != nil || info.IsDir() {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
+	case http.MethodPut:
+		destPath, err := s.routeIncoming(virtualPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		tmp, err := os.CreateTemp(filepath.Dir(destPath), ".retrosync-*.tmp")
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		tmpName := tmp.Name()
+		if _, err := io.Copy(tmp, r.Body); err != nil {
+			tmp.Close()
+			os.Remove(tmpName)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		tmp.Close()
+		if err := os.Rename(tmpName, destPath); err != nil {
+			os.Remove(tmpName)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("transfer: received %s", virtualPath)
+		writeJSON(w, map[string]string{"status": "ok"})
 
-	http.ServeFile(w, r, absPath)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {

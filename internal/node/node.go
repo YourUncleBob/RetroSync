@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +28,10 @@ type Node struct {
 	id            string
 	httpPort      int
 	discoveryPort int
+
+	isServer   bool
+	serverAddr string // host only (client mode)
+	serverPort int    // port only (client mode)
 
 	cfgPath string         // empty when launched with -dir (legacy)
 	cfg     *config.Config // live copy for mutation
@@ -73,10 +79,28 @@ func New(cfg *config.Config, cfgPath string) (*Node, error) {
 	id := mustGenerateID()
 	log.Printf("node ID: %s", id)
 
+	var svrAddr string
+	var svrPort int
+	if cfg.Node.ServerAddr != "" {
+		host, portStr, err := net.SplitHostPort(cfg.Node.ServerAddr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid server_addr %q: %w", cfg.Node.ServerAddr, err)
+		}
+		p, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port in server_addr %q: %w", cfg.Node.ServerAddr, err)
+		}
+		svrAddr = host
+		svrPort = p
+	}
+
 	n := &Node{
 		id:            id,
 		httpPort:      cfg.Node.Port,
 		discoveryPort: cfg.Node.DiscoveryPort,
+		isServer:      cfg.Node.Role == "server",
+		serverAddr:    svrAddr,
+		serverPort:    svrPort,
 		cfgPath:       cfgPath,
 		cfg:           cfg,
 		groups:        groups,
@@ -89,8 +113,8 @@ func New(cfg *config.Config, cfgPath string) (*Node, error) {
 	return n, nil
 }
 
-// Start indexes existing files, launches the HTTP server, discovery, watcher,
-// and periodic sync loop.
+// Start indexes existing files, launches the HTTP server, and starts the
+// appropriate sync mode (server, client, or legacy P2P).
 func (n *Node) Start() error {
 	var err error
 	n.fileIdx, err = index.BuildFromGroups(n.entries)
@@ -99,13 +123,31 @@ func (n *Node) Start() error {
 	}
 	log.Printf("indexed %d existing file(s)", len(n.fileIdx))
 
-	n.server = transfer.NewServer(n.httpPort, n.snapshot, n.resolveLocal,
+	n.server = transfer.NewServer(n.httpPort, n.snapshot, n.resolveLocal, n.routeIncoming,
 		n.Status, n.SyncGroups, n.AddGroup, n.RemoveGroup)
 	if err := n.server.Start(); err != nil {
 		return err
 	}
 	log.Printf("web UI: http://localhost:%d/ui", n.httpPort)
 
+	if n.isServer {
+		if err := n.startWatcher(); err != nil {
+			return err
+		}
+		log.Printf("running as authoritative server")
+		return nil
+	}
+
+	if n.cfg.Node.Role == "client" {
+		if err := n.startWatcher(); err != nil {
+			return err
+		}
+		go n.periodicSyncWithServer()
+		log.Printf("running as client, server %s:%d", n.serverAddr, n.serverPort)
+		return nil
+	}
+
+	// Legacy P2P mode
 	n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, n.onPeerDiscovered)
 	if err := n.disc.Start(); err != nil {
 		return err
@@ -408,6 +450,87 @@ func (n *Node) syncWithPeer(peer discovery.Peer) {
 		n.mu.Lock()
 		n.fileIdx[path] = fi
 		n.mu.Unlock()
+	}
+}
+
+// syncWithServer performs a bidirectional sync with the authoritative server:
+// pull server-newer files down, push client-newer files up.
+func (n *Node) syncWithServer() {
+	serverIdx, err := n.client.FetchIndex(n.serverAddr, n.serverPort)
+	if err != nil {
+		log.Printf("sync: fetch index from server failed: %v", err)
+		return
+	}
+
+	local := n.snapshot()
+
+	// PULL PASS — fetch files that are newer on the server.
+	for virtualPath, remoteFile := range serverIdx {
+		localFile, exists := local[virtualPath]
+		if exists && localFile.Hash == remoteFile.Hash {
+			continue
+		}
+		if exists && !remoteFile.ModTime.After(localFile.ModTime) {
+			continue // local is same age or newer
+		}
+
+		log.Printf("sync: pulling %s from server", virtualPath)
+		if err := n.client.FetchFile(n.serverAddr, n.serverPort, virtualPath, n.routeIncoming); err != nil {
+			log.Printf("sync: pull %s failed: %v", virtualPath, err)
+			continue
+		}
+
+		// Re-index the freshly downloaded file.
+		destPath, err := n.routeIncoming(virtualPath)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(destPath)
+		if err != nil {
+			continue
+		}
+		fi, err := index.BuildFileInfo(destPath, virtualPath, info)
+		if err != nil {
+			continue
+		}
+		n.mu.Lock()
+		n.fileIdx[virtualPath] = fi
+		n.mu.Unlock()
+	}
+
+	// Refresh local snapshot after pulls.
+	local = n.snapshot()
+
+	// PUSH PASS — upload files that are newer locally.
+	for virtualPath, localFile := range local {
+		remoteFile, exists := serverIdx[virtualPath]
+		if exists && localFile.Hash == remoteFile.Hash {
+			continue
+		}
+		if exists && !localFile.ModTime.After(remoteFile.ModTime) {
+			continue // server is same age or newer
+		}
+
+		log.Printf("sync: pushing %s to server", virtualPath)
+		if err := n.client.PushFile(n.serverAddr, n.serverPort, virtualPath, localFile.LocalPath); err != nil {
+			log.Printf("sync: push %s failed: %v", virtualPath, err)
+		}
+	}
+}
+
+// periodicSyncWithServer syncs with the server immediately on startup, then
+// every 30 seconds.
+func (n *Node) periodicSyncWithServer() {
+	n.syncWithServer()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			n.syncWithServer()
+		case <-n.done:
+			return
+		}
 	}
 }
 
