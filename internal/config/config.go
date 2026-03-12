@@ -113,6 +113,26 @@ func ParseAllSpecs(groups []SyncGroup) (map[string][]PathSpec, error) {
 	return out, nil
 }
 
+const defaultConfigTemplate = `[node]
+port           = 9877
+discovery_port = 9876
+role           = "client"
+# name         = ""              # optional; defaults to hostname
+# server_addr  = ""              # optional; omit to use UDP auto-discovery
+
+# [[sync]]
+# name  = "snes-saves"
+# paths = [
+#   "J:/RetroBat/saves/snes/[*.srm]",
+#   "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]",
+# ]
+`
+
+// WriteDefaultConfig writes a sensible default config template to path.
+func WriteDefaultConfig(path string) error {
+	return os.WriteFile(path, []byte(defaultConfigTemplate), 0644)
+}
+
 // DefaultConfig wraps a legacy -dir as group "default" with pattern "*".
 func DefaultConfig(syncDir string, port, discoveryPort int) *Config {
 	return &Config{

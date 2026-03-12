@@ -23,6 +23,12 @@ func main() {
 
 	var cfg *config.Config
 	if *configFile != "" {
+		if _, err := os.Stat(*configFile); os.IsNotExist(err) {
+			if err := config.WriteDefaultConfig(*configFile); err != nil {
+				log.Fatalf("could not create default config: %v", err)
+			}
+			log.Printf("created default config at %s — edit it to configure sync groups", *configFile)
+		}
 		var err error
 		cfg, err = config.Load(*configFile)
 		if err != nil {
