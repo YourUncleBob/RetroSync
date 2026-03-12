@@ -4,6 +4,7 @@
 port           = 9877
 discovery_port = 9876
 role           = "server"
+name = "Upstairs Retrobat PC"   # optional; defaults to hostname
 
 # Each [[sync]] block defines a named group of files to sync.
 # Files are shared with peers as "<group-name>/<filename>".

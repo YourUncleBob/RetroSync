@@ -51,8 +51,8 @@
   <div class="kv" id="node-kv"><span class="label">Loading...</span><span></span></div>
 </div>
 
-<div class="panel">
-  <h2>Connected Peers</h2>
+<div class="panel" id="peers-panel">
+  <h2 id="peers-heading">Connected Peers</h2>
   <div id="peers-container"><span class="empty">Loading...</span></div>
 </div>
 
@@ -99,27 +99,68 @@ async function fetchAll() {
   }
 }
 
+function modeLabel(role) {
+  if (role === 'server') return 'Server';
+  if (role === 'client') return 'Client';
+  return 'Peer (legacy P2P)';
+}
+
 function renderStatus(s) {
   const kv = document.getElementById('node-kv');
   kv.innerHTML = `
+    <span class="label">Name</span><span class="value">${esc(s.name || '—')}</span>
+    <span class="label">Mode</span><span class="value">${esc(modeLabel(s.role))}</span>
     <span class="label">ID</span><span class="value">${esc(s.id)}</span>
     <span class="label">HTTP port</span><span class="value">${s.http_port}</span>
     <span class="label">Discovery port</span><span class="value">${s.discovery_port}</span>
     <span class="label">Indexed files</span><span class="value">${s.file_count}</span>
   `;
 
+  document.title = 'RetroSync \u2014 ' + esc(s.name || s.id);
+
+  const heading = document.getElementById('peers-heading');
   const container = document.getElementById('peers-container');
-  const peers = s.peers || [];
-  if (peers.length === 0) {
-    container.innerHTML = '<span class="empty">No peers connected</span>';
-    return;
+
+  if (s.role === 'server') {
+    heading.textContent = 'Connected Clients';
+    const peers = s.peers || [];
+    if (peers.length === 0) {
+      container.innerHTML = '<span class="empty">No clients connected</span>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Name</th><th>Address</th><th>Port</th></tr></thead><tbody>';
+    for (const p of peers) {
+      html += `<tr><td>${esc(p.name || p.id)}</td><td>${esc(p.addr)}</td><td>${p.port}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+  } else if (s.role === 'client') {
+    heading.textContent = 'Server';
+    const addr = s.server_addr || '';
+    const port = s.server_port || 0;
+    const addrDisplay = addr ? esc(addr) + ':' + port : '<em style="color:#555">Discovering...</em>';
+    container.innerHTML = `
+      <div class="kv">
+        <span class="label">Name</span><span class="value">${esc(s.server_name || '—')}</span>
+        <span class="label">Address</span><span class="value">${addrDisplay}</span>
+      </div>`;
+
+  } else {
+    // Legacy P2P
+    heading.textContent = 'Connected Peers';
+    const peers = s.peers || [];
+    if (peers.length === 0) {
+      container.innerHTML = '<span class="empty">No peers connected</span>';
+      return;
+    }
+    let html = '<table><thead><tr><th>ID</th><th>Address</th><th>Port</th></tr></thead><tbody>';
+    for (const p of peers) {
+      html += `<tr><td>${esc(p.id)}</td><td>${esc(p.addr)}</td><td>${p.port}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
   }
-  let html = '<table><thead><tr><th>ID</th><th>Address</th><th>Port</th></tr></thead><tbody>';
-  for (const p of peers) {
-    html += `<tr><td>${esc(p.id)}</td><td>${esc(p.addr)}</td><td>${p.port}</td></tr>`;
-  }
-  html += '</tbody></table>';
-  container.innerHTML = html;
 }
 
 function renderGroups(groups) {
@@ -187,13 +228,6 @@ function esc(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-// Detect read-only mode by trying to add with a sentinel
-async function detectReadOnly() {
-  // We probe by checking if addGroup would say "no config file"
-  // Simpler: just let the error surface naturally on attempt.
-  // Mark read-only only after a 404/error mentioning config.
 }
 
 fetchAll();

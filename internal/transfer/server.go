@@ -25,6 +25,7 @@ var uiHTML string
 // PeerInfo describes a connected peer node.
 type PeerInfo struct {
 	ID   string `json:"id"`
+	Name string `json:"name"`
 	Addr string `json:"addr"`
 	Port int    `json:"port"`
 }
@@ -32,9 +33,14 @@ type PeerInfo struct {
 // StatusInfo holds the runtime status of a node.
 type StatusInfo struct {
 	ID            string     `json:"id"`
+	Name          string     `json:"name"`
 	HTTPPort      int        `json:"http_port"`
 	DiscoveryPort int        `json:"discovery_port"`
 	FileCount     int        `json:"file_count"`
+	Role          string     `json:"role"`                  // "server", "client", or "" (legacy P2P)
+	ServerAddr    string     `json:"server_addr,omitempty"` // client only
+	ServerPort    int        `json:"server_port,omitempty"` // client only
+	ServerName    string     `json:"server_name,omitempty"` // client only
 	Peers         []PeerInfo `json:"peers"`
 }
 

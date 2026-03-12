@@ -17,6 +17,7 @@ type NodeConfig struct {
 	DiscoveryPort int    `toml:"discovery_port"`
 	Role          string `toml:"role"`        // "server" or "client"; "" = legacy P2P
 	ServerAddr    string `toml:"server_addr"` // client only — "host:port" of the server
+	Name          string `toml:"name"`        // human-readable node name; defaults to hostname if empty
 }
 
 // SyncGroup maps a named group to one or more path/pattern entries.

@@ -26,12 +26,14 @@ import (
 // Node is a single participant in the sync network.
 type Node struct {
 	id            string
+	name          string // human-readable name (hostname or config override)
 	httpPort      int
 	discoveryPort int
 
 	isServer   bool
 	serverAddr string // host only (client mode)
 	serverPort int    // port only (client mode)
+	serverName string // display name of the discovered/configured server (client mode)
 
 	cfgPath string         // empty when launched with -dir (legacy)
 	cfg     *config.Config // live copy for mutation
@@ -79,6 +81,15 @@ func New(cfg *config.Config, cfgPath string) (*Node, error) {
 	id := mustGenerateID()
 	log.Printf("node ID: %s", id)
 
+	name := cfg.Node.Name
+	if name == "" {
+		if h, err := os.Hostname(); err == nil {
+			name = h
+		} else {
+			name = id
+		}
+	}
+
 	var svrAddr string
 	var svrPort int
 	if cfg.Node.ServerAddr != "" {
@@ -96,6 +107,7 @@ func New(cfg *config.Config, cfgPath string) (*Node, error) {
 
 	n := &Node{
 		id:            id,
+		name:          name,
 		httpPort:      cfg.Node.Port,
 		discoveryPort: cfg.Node.DiscoveryPort,
 		isServer:      cfg.Node.Role == "server",
@@ -132,7 +144,7 @@ func (n *Node) Start() error {
 
 	if n.isServer {
 		// Broadcast with IsServer=true so clients can discover us automatically.
-		n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, true, nil)
+		n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, true, n.name, n.onClientDiscovered)
 		if err := n.disc.Start(); err != nil {
 			return err
 		}
@@ -145,7 +157,7 @@ func (n *Node) Start() error {
 
 	if n.cfg.Node.Role == "client" {
 		// Listen for server beacon; also broadcasts so future server-push is possible.
-		n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.onServerDiscovered)
+		n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.name, n.onServerDiscovered)
 		if err := n.disc.Start(); err != nil {
 			return err
 		}
@@ -162,7 +174,7 @@ func (n *Node) Start() error {
 	}
 
 	// Legacy P2P mode
-	n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.onPeerDiscovered)
+	n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.name, n.onPeerDiscovered)
 	if err := n.disc.Start(); err != nil {
 		return err
 	}
@@ -248,8 +260,20 @@ func (n *Node) onPeerDiscovered(peer discovery.Peer) {
 	n.syncWithPeer(peer)
 }
 
+// onClientDiscovered is called by discovery in server mode. It records
+// discovered non-server peers without triggering a sync (server doesn't pull
+// from clients).
+func (n *Node) onClientDiscovered(peer discovery.Peer) {
+	if peer.IsServer {
+		return
+	}
+	n.mu.Lock()
+	n.peers[peer.ID] = peer
+	n.mu.Unlock()
+}
+
 // onServerDiscovered is called by discovery in client mode. It captures the
-// server's address the first time a server beacon is heard.
+// server's address and name the first time a server beacon is heard.
 func (n *Node) onServerDiscovered(peer discovery.Peer) {
 	if !peer.IsServer {
 		return
@@ -259,6 +283,7 @@ func (n *Node) onServerDiscovered(peer discovery.Peer) {
 	if n.serverAddr == "" {
 		n.serverAddr = peer.Addr
 		n.serverPort = peer.Port
+		n.serverName = peer.Name
 		log.Printf("discovered authoritative server at %s:%d", peer.Addr, peer.Port)
 	}
 }
@@ -586,13 +611,18 @@ func (n *Node) Status() transfer.StatusInfo {
 	defer n.mu.RUnlock()
 	peers := make([]transfer.PeerInfo, 0, len(n.peers))
 	for _, p := range n.peers {
-		peers = append(peers, transfer.PeerInfo{ID: p.ID, Addr: p.Addr, Port: p.Port})
+		peers = append(peers, transfer.PeerInfo{ID: p.ID, Name: p.Name, Addr: p.Addr, Port: p.Port})
 	}
 	return transfer.StatusInfo{
 		ID:            n.id,
+		Name:          n.name,
 		HTTPPort:      n.httpPort,
 		DiscoveryPort: n.discoveryPort,
 		FileCount:     len(n.fileIdx),
+		Role:          n.cfg.Node.Role,
+		ServerAddr:    n.serverAddr,
+		ServerPort:    n.serverPort,
+		ServerName:    n.serverName,
 		Peers:         peers,
 	}
 }
