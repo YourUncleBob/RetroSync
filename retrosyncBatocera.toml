@@ -4,7 +4,7 @@
 port           = 9877
 discovery_port = 9876
 role           = "client"
-server_addr    = "192.168.X.X:9877"
+# server_addr  = "192.168.212.226:9877"  # optional; omit to use UDP auto-discovery
 
 [[sync]]
 name  = "snes-saves"

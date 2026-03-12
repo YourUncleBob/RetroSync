@@ -131,6 +131,11 @@ func (n *Node) Start() error {
 	log.Printf("web UI: http://localhost:%d/ui", n.httpPort)
 
 	if n.isServer {
+		// Broadcast with IsServer=true so clients can discover us automatically.
+		n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, true, nil)
+		if err := n.disc.Start(); err != nil {
+			return err
+		}
 		if err := n.startWatcher(); err != nil {
 			return err
 		}
@@ -139,16 +144,25 @@ func (n *Node) Start() error {
 	}
 
 	if n.cfg.Node.Role == "client" {
+		// Listen for server beacon; also broadcasts so future server-push is possible.
+		n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.onServerDiscovered)
+		if err := n.disc.Start(); err != nil {
+			return err
+		}
 		if err := n.startWatcher(); err != nil {
 			return err
 		}
 		go n.periodicSyncWithServer()
-		log.Printf("running as client, server %s:%d", n.serverAddr, n.serverPort)
+		if n.serverAddr != "" {
+			log.Printf("running as client, server %s:%d", n.serverAddr, n.serverPort)
+		} else {
+			log.Printf("running as client, discovering server via UDP broadcast on port %d", n.discoveryPort)
+		}
 		return nil
 	}
 
 	// Legacy P2P mode
-	n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, n.onPeerDiscovered)
+	n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.onPeerDiscovered)
 	if err := n.disc.Start(); err != nil {
 		return err
 	}
@@ -226,12 +240,27 @@ func (n *Node) routeIncoming(virtualPath string) (string, error) {
 	return "", fmt.Errorf("no pattern in group %q matches %q", group, filename)
 }
 
-// onPeerDiscovered is called by discovery when a new peer is first seen.
+// onPeerDiscovered is called by discovery when a new peer is first seen (legacy P2P).
 func (n *Node) onPeerDiscovered(peer discovery.Peer) {
 	n.mu.Lock()
 	n.peers[peer.ID] = peer
 	n.mu.Unlock()
 	n.syncWithPeer(peer)
+}
+
+// onServerDiscovered is called by discovery in client mode. It captures the
+// server's address the first time a server beacon is heard.
+func (n *Node) onServerDiscovered(peer discovery.Peer) {
+	if !peer.IsServer {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.serverAddr == "" {
+		n.serverAddr = peer.Addr
+		n.serverPort = peer.Port
+		log.Printf("discovered authoritative server at %s:%d", peer.Addr, peer.Port)
+	}
 }
 
 // startWatcher sets up fsnotify on every entry dir (deduplicated).
@@ -456,7 +485,16 @@ func (n *Node) syncWithPeer(peer discovery.Peer) {
 // syncWithServer performs a bidirectional sync with the authoritative server:
 // pull server-newer files down, push client-newer files up.
 func (n *Node) syncWithServer() {
-	serverIdx, err := n.client.FetchIndex(n.serverAddr, n.serverPort)
+	n.mu.RLock()
+	addr, port := n.serverAddr, n.serverPort
+	n.mu.RUnlock()
+
+	if addr == "" {
+		log.Printf("sync: server not yet discovered, waiting for beacon...")
+		return
+	}
+
+	serverIdx, err := n.client.FetchIndex(addr, port)
 	if err != nil {
 		log.Printf("sync: fetch index from server failed: %v", err)
 		return
@@ -475,7 +513,7 @@ func (n *Node) syncWithServer() {
 		}
 
 		log.Printf("sync: pulling %s from server", virtualPath)
-		if err := n.client.FetchFile(n.serverAddr, n.serverPort, virtualPath, n.routeIncoming); err != nil {
+		if err := n.client.FetchFile(addr, port, virtualPath, n.routeIncoming); err != nil {
 			log.Printf("sync: pull %s failed: %v", virtualPath, err)
 			continue
 		}
@@ -512,7 +550,7 @@ func (n *Node) syncWithServer() {
 		}
 
 		log.Printf("sync: pushing %s to server", virtualPath)
-		if err := n.client.PushFile(n.serverAddr, n.serverPort, virtualPath, localFile.LocalPath); err != nil {
+		if err := n.client.PushFile(addr, port, virtualPath, localFile.LocalPath); err != nil {
 			log.Printf("sync: push %s failed: %v", virtualPath, err)
 		}
 	}

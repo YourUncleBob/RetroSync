@@ -17,9 +17,10 @@ const broadcastIP = "255.255.255.255"
 
 // Peer represents a discovered remote node.
 type Peer struct {
-	ID   string `json:"id"`
-	Addr string `json:"addr"` // IPv4 address
-	Port int    `json:"port"` // HTTP server port
+	ID       string `json:"id"`
+	Addr     string `json:"addr"`              // IPv4 address
+	Port     int    `json:"port"`              // HTTP server port
+	IsServer bool   `json:"is_server,omitempty"` // true when this node is the authoritative server
 }
 
 // Discovery handles sending and receiving peer beacons.
@@ -27,6 +28,7 @@ type Discovery struct {
 	nodeID        string
 	httpPort      int
 	discoveryPort int
+	isServer      bool
 
 	mu     sync.Mutex
 	peers  map[string]Peer
@@ -35,12 +37,15 @@ type Discovery struct {
 	done chan struct{}
 }
 
-// New creates a Discovery instance. onPeer is called once per new peer found.
-func New(nodeID string, httpPort, discoveryPort int, onPeer func(Peer)) *Discovery {
+// New creates a Discovery instance. isServer marks this node as the authoritative
+// server in its beacon so clients can identify it. onPeer is called once per new
+// peer found; pass nil if not needed.
+func New(nodeID string, httpPort, discoveryPort int, isServer bool, onPeer func(Peer)) *Discovery {
 	return &Discovery{
 		nodeID:        nodeID,
 		httpPort:      httpPort,
 		discoveryPort: discoveryPort,
+		isServer:      isServer,
 		peers:         make(map[string]Peer),
 		onPeer:        onPeer,
 		done:          make(chan struct{}),
@@ -79,7 +84,7 @@ func (d *Discovery) broadcast() {
 	}
 	defer conn.Close()
 
-	beacon := Peer{ID: d.nodeID, Port: d.httpPort}
+	beacon := Peer{ID: d.nodeID, Port: d.httpPort, IsServer: d.isServer}
 
 	send := func() {
 		beacon.Addr = localIP()
