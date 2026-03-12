@@ -3,6 +3,9 @@
 Primarily used to sync save files between multiple Batocera or Retrobat systems.
 I investigates using Syncthing, but ran into issues where the file structure used by Batocera differs slightly from that of Retrobat, making it difficult to share all the save files. I found no good way between Syncthings .stignore file or symbolic links to sync all of these files so that all files were shared between Batocera and Retrobat, but some files were in different folders in Retrobat than they were in Batocera.
 
+## Status
+RetroSync is currently a work in progress in the early test stages. At this point, it's mostly Claude generated code. It passes initial tests, but itsn't ready for use. 
+
 ## Example problem:
 
 In Batocera, the save files look like:
@@ -55,7 +58,7 @@ name  = "snes-saves"
 # .state and .png files in the snes/libretro.snes9x folder
 paths = [
     "J:/RetroBat/saves/snes/[*.srm]",
-    "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]",
+    "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]"
 ]
 ```
 ### Batocera
@@ -66,7 +69,6 @@ paths = [
 port           = 9877
 discovery_port = 9876
 role           = "client"
-server_addr    = "192.168.X.X:9877"
 
 [[sync]]
 name  = "snes-saves"
@@ -80,3 +82,13 @@ paths = [
 Because of my setup at home, it made the most sense for me to use an authoritative server where all clients push changes up to the server and get new files down from the server. This will allow me to do some better conflict resolution (it doesn't exist in the current version) and do things like keep older versions of the save files to restore back to should a save file somehow be damaged.
 If desired by others, I could add the ability to run peer-to-peer, like Syncthing does. In general, this was intended to sync smallish files infrequently, so it doesn't attempt to be as failsafe as Syncthing.
 I also plan on adding a client-side command to completely refresh all save files from the server, wiping out any local saves.
+
+## Next Steps
+My current plan is:
+* Test on multiple platforms (Retrobat PC, Batocera PC, Batocera Raspberry PI 5)
+* Add ability to pause individual rules to the web status page
+* Currently the syncing doesn't recursively go into folders. It only syncs files directly in specified folders. Add the ability to specify that a path should include recursion.
+* Authoritative server support - The idea being that the files on the server can be cleaned up, reduced when there are too many, etc.
+  * Add the ability to force a sync from the server (if running in authoritative server mode) to the web status page for any of the clients. I believe this would also remove local files that are not on the server
+  * Add ability for server to only get files from clients that are newer than a specified date/time. I want to be able to cleanup the files on the server and don't want older files coming from the clients to be pulled in after that cleanup
+* Peer-to-peer support - For my setup I want one of the machines to always be on and act as an authitative server. I want to look at adding support for serverless peer-to-peer to more closely match the Syncthing model to see how difficult that would be
