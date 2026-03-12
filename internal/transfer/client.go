@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,6 +43,26 @@ func (c *Client) FetchIndex(addr string, port int) (index.Index, error) {
 		return nil, err
 	}
 	return index.FromJSON(data)
+}
+
+// FetchStatus retrieves the remote node's name from its /api/status endpoint.
+func (c *Client) FetchStatus(addr string, port int) (string, error) {
+	u := &url.URL{Scheme: "http", Host: fmt.Sprintf("%s:%d", addr, port), Path: "/api/status"}
+	resp, err := c.http.Get(u.String())
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("server returned %s", resp.Status)
+	}
+	var s struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return "", err
+	}
+	return s.Name, nil
 }
 
 // FetchFile downloads a single file from a remote peer and writes it atomically

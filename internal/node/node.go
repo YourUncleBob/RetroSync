@@ -519,6 +519,14 @@ func (n *Node) syncWithServer() {
 		return
 	}
 
+	if n.serverName == "" {
+		if name, err := n.client.FetchStatus(addr, port); err == nil && name != "" {
+			n.mu.Lock()
+			n.serverName = name
+			n.mu.Unlock()
+		}
+	}
+
 	serverIdx, err := n.client.FetchIndex(addr, port)
 	if err != nil {
 		log.Printf("sync: fetch index from server failed: %v", err)
