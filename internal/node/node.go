@@ -119,7 +119,7 @@ func New(cfg *config.Config, cfgPath string) (*Node, error) {
 		entries:       entries,
 		peers:         make(map[string]discovery.Peer),
 		fileIdx:       make(index.Index),
-		client:        transfer.NewClient(),
+		client:        transfer.NewClient(id, name, cfg.Node.Port),
 		done:          make(chan struct{}),
 	}
 	return n, nil
@@ -136,7 +136,7 @@ func (n *Node) Start() error {
 	log.Printf("indexed %d existing file(s)", len(n.fileIdx))
 
 	n.server = transfer.NewServer(n.httpPort, n.snapshot, n.resolveLocal, n.routeIncoming,
-		n.Status, n.SyncGroups, n.AddGroup, n.RemoveGroup)
+		n.Status, n.SyncGroups, n.AddGroup, n.RemoveGroup, n.registerPeer)
 	if err := n.server.Start(); err != nil {
 		return err
 	}
@@ -250,6 +250,18 @@ func (n *Node) routeIncoming(virtualPath string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no pattern in group %q matches %q", group, filename)
+}
+
+// registerPeer records a peer identified via HTTP request headers. This is called
+// by the transfer server when it receives a request carrying RetroSync identity
+// headers, allowing the server to track clients that connect directly via
+// server_addr without relying on UDP discovery.
+func (n *Node) registerPeer(id, name string, port int, addr string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if _, known := n.peers[id]; !known {
+		n.peers[id] = discovery.Peer{ID: id, Name: name, Addr: addr, Port: port}
+	}
 }
 
 // onPeerDiscovered is called by discovery when a new peer is first seen (legacy P2P).

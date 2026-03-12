@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"retrosync/internal/index"
@@ -16,19 +17,40 @@ import (
 // Client fetches index metadata and files from a remote peer.
 type Client struct {
 	http *http.Client
+	id   string
+	name string
+	port int
 }
 
-// NewClient creates a Client with sensible timeouts.
-func NewClient() *Client {
+// NewClient creates a Client with sensible timeouts. id, name, and port
+// identify this node to remote servers so they can register it as a connected
+// client without relying on UDP discovery.
+func NewClient(id, name string, port int) *Client {
 	return &Client{
 		http: &http.Client{Timeout: 60 * time.Second},
+		id:   id,
+		name: name,
+		port: port,
 	}
+}
+
+// addIdentity stamps outgoing requests with this node's identity so the remote
+// server can register it as a connected client.
+func (c *Client) addIdentity(req *http.Request) {
+	req.Header.Set("X-RetroSync-ID", c.id)
+	req.Header.Set("X-RetroSync-Name", c.name)
+	req.Header.Set("X-RetroSync-Port", strconv.Itoa(c.port))
 }
 
 // FetchIndex retrieves the remote node's file index.
 func (c *Client) FetchIndex(addr string, port int) (index.Index, error) {
 	u := &url.URL{Scheme: "http", Host: fmt.Sprintf("%s:%d", addr, port), Path: "/index"}
-	resp, err := c.http.Get(u.String())
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	c.addIdentity(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +70,12 @@ func (c *Client) FetchIndex(addr string, port int) (index.Index, error) {
 // FetchStatus retrieves the remote node's name from its /api/status endpoint.
 func (c *Client) FetchStatus(addr string, port int) (string, error) {
 	u := &url.URL{Scheme: "http", Host: fmt.Sprintf("%s:%d", addr, port), Path: "/api/status"}
-	resp, err := c.http.Get(u.String())
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	c.addIdentity(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +101,12 @@ func (c *Client) FetchFile(addr string, port int, virtualPath string, resolver f
 		Path:   "/files/" + virtualPath,
 	}
 
-	resp, err := c.http.Get(u.String())
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	c.addIdentity(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
@@ -127,6 +159,7 @@ func (c *Client) PushFile(addr string, port int, virtualPath, localPath string) 
 	if err != nil {
 		return err
 	}
+	c.addIdentity(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

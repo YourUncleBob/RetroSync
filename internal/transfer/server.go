@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"retrosync/internal/config"
@@ -54,6 +56,7 @@ type Server struct {
 	getSyncs      func() []config.SyncGroup
 	addGroup      func(name string, paths []string) error
 	removeGroup   func(name string) error
+	registerPeer  func(id, name string, port int, addr string)
 	srv           *http.Server
 }
 
@@ -71,6 +74,7 @@ func NewServer(
 	getSyncs func() []config.SyncGroup,
 	addGroup func(string, []string) error,
 	removeGroup func(string) error,
+	registerPeer func(id, name string, port int, addr string),
 ) *Server {
 	return &Server{
 		port:          port,
@@ -81,6 +85,7 @@ func NewServer(
 		getSyncs:      getSyncs,
 		addGroup:      addGroup,
 		removeGroup:   removeGroup,
+		registerPeer:  registerPeer,
 	}
 }
 
@@ -111,7 +116,32 @@ func (s *Server) Stop() {
 	s.srv.Shutdown(context.Background())
 }
 
+// tryRegisterPeer reads RetroSync identity headers from an incoming request and
+// registers the caller as a peer. This lets the server track clients that
+// connect via HTTP without requiring UDP discovery to be on the same port.
+func (s *Server) tryRegisterPeer(r *http.Request) {
+	if s.registerPeer == nil {
+		return
+	}
+	id := r.Header.Get("X-RetroSync-ID")
+	portStr := r.Header.Get("X-RetroSync-Port")
+	if id == "" || portStr == "" {
+		return
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return
+	}
+	name := r.Header.Get("X-RetroSync-Name")
+	addr := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		addr = host
+	}
+	s.registerPeer(id, name, port, addr)
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	s.tryRegisterPeer(r)
 	idx := s.getIndex()
 	data, err := json.Marshal(idx)
 	if err != nil {
@@ -123,6 +153,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	s.tryRegisterPeer(r)
 	virtualPath := strings.TrimPrefix(r.URL.Path, "/files/")
 	if virtualPath == "" {
 		http.Error(w, "not found", http.StatusNotFound)
