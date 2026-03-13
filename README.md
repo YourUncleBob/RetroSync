@@ -95,7 +95,8 @@ I also plan on adding a client-side command to completely refresh all save files
 retrosync -config *config filename*
 example:
     retrosync -config retrosync.toml
-The config file is a toml file. If not present RetroSync will be run in peer-to-peer mode, using default ports. This is currently untested.
+
+The config file is a toml file. If no -config argument is given, RetroSync will be run in peer-to-peer mode using default ports. This is currently untested. If the file specified by -config doesn't exist, a default file will be created for client mode, with default ports.
 
 On a PC, RetroSync can also be run as a service. To do this:
 - Save the config file into C:/ProgramData/RetroSync/*configFileName*.toml
