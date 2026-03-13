@@ -111,7 +111,8 @@ The config file is a toml file and is currently required. Will be adding a featu
     
 ## Web Monitoring/Configuration
 Once running, a web UI can be brought up at http://localhost:9877/ui. This shows the status of the system, what it's connected to and all of the current sync groups that are defined. It also allows for new sync groups to be created.
-<img width="1023" height="857" alt="RetroSyncWeb" src="https://github.com/user-attachments/assets/095d9019-113d-4bef-b80c-c009cf2740d9" />
+<img width="923" height="907" alt="RetroSyncWeb" src="https://github.com/user-attachments/assets/0b56cc40-bc11-4212-821c-b4d99a2ad9a1" />
+
 
 
 
