@@ -9,7 +9,7 @@ import (
 type SyncEvent struct {
 	Index     int       `json:"index"`
 	Time      time.Time `json:"time"`
-	Direction string    `json:"direction"` // "in" or "out"
+	Direction string    `json:"direction"` // "in", "out", or "del"
 	Group     string    `json:"group"`
 	Filename  string    `json:"filename"`
 	SizeBytes int64     `json:"size_bytes"`

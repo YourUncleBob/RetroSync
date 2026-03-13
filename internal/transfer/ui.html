@@ -61,6 +61,7 @@
   .log-table tr:hover td { background: #161616; }
   .dir-in  { color: #7ec8e3; }
   .dir-out { color: #e3a87e; }
+  .dir-del { color: #e07070; }
   .log-empty { color: #444; font-style: italic; font-size: 0.85rem; padding: 0.6rem; }
   .btn-force { background: #2a1a3a; color: #c07ee3; }
   .btn-force:hover { background: #3a2050; }
@@ -114,7 +115,7 @@
     <table class="log-table" id="log-table">
       <thead>
         <tr>
-          <th>Time</th><th>Dir</th><th>Group</th>
+          <th>Time</th><th>Op</th><th>Group</th>
           <th>File</th><th>Size</th><th>Peer</th>
         </tr>
       </thead>
@@ -389,14 +390,23 @@ async function fetchLog() {
     for (const e of entries) {
       const tr = document.createElement('tr');
       const ts = new Date(e.time).toLocaleTimeString();
-      const dirLabel = e.direction === 'in' ? '\u2193 in' : '\u2191 out';
-      const dirClass = e.direction === 'in' ? 'dir-in' : 'dir-out';
+      let dirLabel, dirClass;
+      if (e.direction === 'in') {
+        dirLabel = '\u2193 in';
+        dirClass = 'dir-in';
+      } else if (e.direction === 'out') {
+        dirLabel = '\u2191 out';
+        dirClass = 'dir-out';
+      } else {
+        dirLabel = '\u2715 del';
+        dirClass = 'dir-del';
+      }
       tr.innerHTML =
         '<td>' + esc(ts) + '</td>' +
         '<td class="' + dirClass + '">' + dirLabel + '</td>' +
         '<td>' + esc(e.group) + '</td>' +
         '<td>' + esc(e.filename) + '</td>' +
-        '<td>' + fmtSize(e.size_bytes) + '</td>' +
+        '<td>' + (e.direction === 'del' ? '—' : fmtSize(e.size_bytes)) + '</td>' +
         '<td>' + esc(e.peer) + '</td>';
       tbody.appendChild(tr);
       if (e.index > logAfter) logAfter = e.index;

@@ -460,8 +460,14 @@ func (n *Node) onFileRemoved(absPath string) {
 	}
 
 	n.mu.Lock()
+	existing := n.fileIdx[virtualPath]
 	delete(n.fileIdx, virtualPath)
 	n.mu.Unlock()
+
+	if n.events != nil {
+		grp, fname := splitVirtualPath(virtualPath)
+		n.events.Append("del", grp, fname, "", existing.Size)
+	}
 }
 
 // findVirtualPath finds the virtual path for an absolute file path by matching
@@ -933,6 +939,10 @@ func (n *Node) ForceSyncGroup(name string) error {
 		n.mu.Lock()
 		delete(n.fileIdx, virtualPath)
 		n.mu.Unlock()
+		if n.events != nil {
+			grp, fname := splitVirtualPath(virtualPath)
+			n.events.Append("del", grp, fname, "", localFile.Size)
+		}
 	}
 
 	return n.PauseGroup(name, waspaused)
