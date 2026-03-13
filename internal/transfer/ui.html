@@ -76,7 +76,7 @@
 
 <div class="panel" id="node-panel">
   <h2>Node Info</h2>
-  <div class="kv" id="node-kv"><span class="label">Loading...</span><span></span></div>
+  <div style="display:flex;gap:2rem;" id="node-kv"><span class="label">Loading...</span></div>
 </div>
 
 <div class="panel" id="peers-panel">
@@ -167,12 +167,16 @@ function renderStatus(s) {
   nodeRole = s.role;
   const kv = document.getElementById('node-kv');
   kv.innerHTML = `
-    <span class="label">Name</span><span class="value">${esc(s.name || '—')}</span>
-    <span class="label">Mode</span><span class="value">${esc(modeLabel(s.role))}</span>
-    <span class="label">ID</span><span class="value">${esc(s.id)}</span>
-    <span class="label">HTTP port</span><span class="value">${s.http_port}</span>
-    <span class="label">Discovery port</span><span class="value">${s.discovery_port}</span>
-    <span class="label">Indexed files</span><span class="value">${s.file_count}</span>
+    <div class="kv" style="flex:1;">
+      <span class="label">Name</span><span class="value">${esc(s.name || '—')}</span>
+      <span class="label">Mode</span><span class="value">${esc(modeLabel(s.role))}</span>
+      <span class="label">ID</span><span class="value">${esc(s.id)}</span>
+    </div>
+    <div class="kv" style="flex:1;">
+      <span class="label">HTTP port</span><span class="value">${s.http_port}</span>
+      <span class="label">Discovery port</span><span class="value">${s.discovery_port}</span>
+      <span class="label">Indexed files</span><span class="value">${s.file_count}</span>
+    </div>
   `;
 
   document.title = 'RetroSync \u2014 ' + esc(s.name || s.id);
