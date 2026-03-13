@@ -45,6 +45,8 @@ type Node struct {
 	peers   map[string]discovery.Peer
 	fileIdx index.Index
 
+	events  *transfer.EventBuffer
+
 	disc    *discovery.Discovery
 	server  *transfer.Server
 	client  *transfer.Client
@@ -135,8 +137,34 @@ func (n *Node) Start() error {
 	}
 	log.Printf("indexed %d existing file(s)", len(n.fileIdx))
 
-	n.server = transfer.NewServer(n.httpPort, n.snapshot, n.resolveLocal, n.routeIncoming,
-		n.Status, n.SyncGroups, n.AddGroup, n.RemoveGroup, n.registerPeer)
+	var getServerSyncs func() ([]config.SyncGroup, error)
+	if n.cfg.Node.Role == "client" {
+		getServerSyncs = func() ([]config.SyncGroup, error) {
+			n.mu.RLock()
+			addr, port := n.serverAddr, n.serverPort
+			n.mu.RUnlock()
+			if addr == "" {
+				return nil, fmt.Errorf("server not yet discovered")
+			}
+			return n.client.FetchSyncs(addr, port)
+		}
+	}
+	evtBuf := transfer.NewEventBuffer()
+	n.events = evtBuf
+	n.server = transfer.NewServer(transfer.ServerOpts{
+		Port:           n.httpPort,
+		GetIndex:       n.snapshot,
+		ResolveLocal:   n.resolveLocal,
+		RouteIncoming:  n.routeIncoming,
+		GetStatus:      n.Status,
+		GetSyncs:       n.SyncGroups,
+		AddGroup:       n.AddGroup,
+		RemoveGroup:    n.RemoveGroup,
+		RegisterPeer:   n.registerPeer,
+		PauseGroup:     n.PauseGroup,
+		GetServerSyncs: getServerSyncs,
+		Events:         evtBuf,
+	})
 	if err := n.server.Start(); err != nil {
 		return err
 	}
@@ -486,6 +514,10 @@ func (n *Node) syncWithPeer(peer discovery.Peer) {
 	n.mu.RUnlock()
 
 	for path, remoteFile := range remote {
+		group := path[:strings.Index(path, "/")]
+		if n.isPaused(group) {
+			continue
+		}
 		localFile, exists := local[path]
 		if exists && localFile.Hash == remoteFile.Hash {
 			continue // already up to date
@@ -498,6 +530,10 @@ func (n *Node) syncWithPeer(peer discovery.Peer) {
 		if err := n.client.FetchFile(peer.Addr, peer.Port, path, n.routeIncoming); err != nil {
 			log.Printf("sync: pull %s failed: %v", path, err)
 			continue
+		}
+		if n.events != nil {
+			grp, fname := splitVirtualPath(path)
+			n.events.Append("in", grp, fname, peer.Name, remoteFile.Size)
 		}
 
 		// Re-index the freshly downloaded file.
@@ -539,6 +575,15 @@ func (n *Node) syncWithServer() {
 		}
 	}
 
+	serverPaused := map[string]bool{}
+	if serverSyncs, err := n.client.FetchSyncs(addr, port); err == nil {
+		for _, g := range serverSyncs {
+			serverPaused[g.Name] = g.Paused
+		}
+	} else {
+		log.Printf("sync: could not fetch server syncs: %v", err)
+	}
+
 	serverIdx, err := n.client.FetchIndex(addr, port)
 	if err != nil {
 		log.Printf("sync: fetch index from server failed: %v", err)
@@ -549,6 +594,10 @@ func (n *Node) syncWithServer() {
 
 	// PULL PASS — fetch files that are newer on the server.
 	for virtualPath, remoteFile := range serverIdx {
+		group := virtualPath[:strings.Index(virtualPath, "/")]
+		if serverPaused[group] || n.isPaused(group) {
+			continue
+		}
 		localFile, exists := local[virtualPath]
 		if exists && localFile.Hash == remoteFile.Hash {
 			continue
@@ -561,6 +610,10 @@ func (n *Node) syncWithServer() {
 		if err := n.client.FetchFile(addr, port, virtualPath, n.routeIncoming); err != nil {
 			log.Printf("sync: pull %s failed: %v", virtualPath, err)
 			continue
+		}
+		if n.events != nil {
+			grp, fname := splitVirtualPath(virtualPath)
+			n.events.Append("in", grp, fname, n.serverName, remoteFile.Size)
 		}
 
 		// Re-index the freshly downloaded file.
@@ -586,6 +639,10 @@ func (n *Node) syncWithServer() {
 
 	// PUSH PASS — upload files that are newer locally.
 	for virtualPath, localFile := range local {
+		group := virtualPath[:strings.Index(virtualPath, "/")]
+		if serverPaused[group] || n.isPaused(group) {
+			continue
+		}
 		remoteFile, exists := serverIdx[virtualPath]
 		if exists && localFile.Hash == remoteFile.Hash {
 			continue
@@ -597,6 +654,11 @@ func (n *Node) syncWithServer() {
 		log.Printf("sync: pushing %s to server", virtualPath)
 		if err := n.client.PushFile(addr, port, virtualPath, localFile.LocalPath); err != nil {
 			log.Printf("sync: push %s failed: %v", virtualPath, err)
+			continue
+		}
+		if n.events != nil {
+			grp, fname := splitVirtualPath(virtualPath)
+			n.events.Append("out", grp, fname, n.serverName, localFile.Size)
 		}
 	}
 }
@@ -615,6 +677,13 @@ func (n *Node) periodicSyncWithServer() {
 			return
 		}
 	}
+}
+
+func splitVirtualPath(vp string) (group, filename string) {
+	if i := strings.Index(vp, "/"); i >= 0 {
+		return vp[:i], vp[i+1:]
+	}
+	return "", vp
 }
 
 func mustGenerateID() string {
@@ -717,6 +786,39 @@ func (n *Node) AddGroup(name string, paths []string) error {
 
 	n.mu.Unlock()
 
+	if n.cfgPath != "" {
+		return config.Save(n.cfgPath, n.cfg)
+	}
+	return nil
+}
+
+// isPaused reports whether the named group is currently paused.
+func (n *Node) isPaused(groupName string) bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	for _, g := range n.cfg.Syncs {
+		if g.Name == groupName {
+			return g.Paused
+		}
+	}
+	return false
+}
+
+// PauseGroup sets the paused state of a sync group and persists the change.
+func (n *Node) PauseGroup(name string, paused bool) error {
+	n.mu.Lock()
+	found := false
+	for i, g := range n.cfg.Syncs {
+		if g.Name == name {
+			n.cfg.Syncs[i].Paused = paused
+			found = true
+			break
+		}
+	}
+	n.mu.Unlock()
+	if !found {
+		return fmt.Errorf("group %q not found", name)
+	}
 	if n.cfgPath != "" {
 		return config.Save(n.cfgPath, n.cfg)
 	}

@@ -48,44 +48,52 @@ type StatusInfo struct {
 
 // Server serves the local file index and individual files over HTTP.
 type Server struct {
-	resolveLocal  func(virtualPath string) (absPath string, ok bool)
-	routeIncoming func(virtualPath string) (destPath string, err error)
-	port          int
-	getIndex      func() index.Index
-	getStatus     func() StatusInfo
-	getSyncs      func() []config.SyncGroup
-	addGroup      func(name string, paths []string) error
-	removeGroup   func(name string) error
-	registerPeer  func(id, name string, port int, addr string)
-	srv           *http.Server
+	resolveLocal   func(virtualPath string) (absPath string, ok bool)
+	routeIncoming  func(virtualPath string) (destPath string, err error)
+	port           int
+	getIndex       func() index.Index
+	getStatus      func() StatusInfo
+	getSyncs       func() []config.SyncGroup
+	addGroup       func(name string, paths []string) error
+	removeGroup    func(name string) error
+	registerPeer   func(id, name string, port int, addr string)
+	pauseGroup     func(name string, paused bool) error
+	getServerSyncs func() ([]config.SyncGroup, error)
+	events         *EventBuffer
+	srv            *http.Server
 }
 
-// NewServer creates a Server. getIndex is called on each /index request so the
-// response is always current. resolveLocal maps a virtual path to the absolute
-// OS path of the file (looked up from the index, not derived from the URL).
-// routeIncoming maps a virtual path to a destination path using config (used
-// for PUT uploads; works even for files not yet in the index).
-func NewServer(
-	port int,
-	getIndex func() index.Index,
-	resolveLocal func(string) (string, bool),
-	routeIncoming func(string) (string, error),
-	getStatus func() StatusInfo,
-	getSyncs func() []config.SyncGroup,
-	addGroup func(string, []string) error,
-	removeGroup func(string) error,
-	registerPeer func(id, name string, port int, addr string),
-) *Server {
+// ServerOpts groups all constructor parameters for NewServer.
+type ServerOpts struct {
+	Port           int
+	GetIndex       func() index.Index
+	ResolveLocal   func(string) (string, bool)
+	RouteIncoming  func(string) (string, error)
+	GetStatus      func() StatusInfo
+	GetSyncs       func() []config.SyncGroup
+	AddGroup       func(string, []string) error
+	RemoveGroup    func(string) error
+	RegisterPeer   func(id, name string, port int, addr string)
+	PauseGroup     func(string, bool) error
+	GetServerSyncs func() ([]config.SyncGroup, error)
+	Events         *EventBuffer // nil disables /api/log
+}
+
+// NewServer creates a Server from ServerOpts.
+func NewServer(opts ServerOpts) *Server {
 	return &Server{
-		port:          port,
-		getIndex:      getIndex,
-		resolveLocal:  resolveLocal,
-		routeIncoming: routeIncoming,
-		getStatus:     getStatus,
-		getSyncs:      getSyncs,
-		addGroup:      addGroup,
-		removeGroup:   removeGroup,
-		registerPeer:  registerPeer,
+		port:           opts.Port,
+		getIndex:       opts.GetIndex,
+		resolveLocal:   opts.ResolveLocal,
+		routeIncoming:  opts.RouteIncoming,
+		getStatus:      opts.GetStatus,
+		getSyncs:       opts.GetSyncs,
+		addGroup:       opts.AddGroup,
+		removeGroup:    opts.RemoveGroup,
+		registerPeer:   opts.RegisterPeer,
+		pauseGroup:     opts.PauseGroup,
+		getServerSyncs: opts.GetServerSyncs,
+		events:         opts.Events,
 	}
 }
 
@@ -99,6 +107,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/config/groups", s.handleGroups)
 	mux.HandleFunc("/api/config/groups/", s.handleGroupByName)
+	mux.HandleFunc("/api/server/config", s.handleServerConfig)
+	mux.HandleFunc("/api/log", s.handleLog)
 
 	s.srv = &http.Server{Addr: fmt.Sprintf(":%d", s.port), Handler: mux}
 
@@ -172,9 +182,27 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if s.events != nil {
+			peerName := r.Header.Get("X-RetroSync-Name")
+			if peerName == "" {
+				peerName = r.Header.Get("X-RetroSync-ID")
+			}
+			group, filename := "", virtualPath
+			if i := strings.Index(virtualPath, "/"); i >= 0 {
+				group, filename = virtualPath[:i], virtualPath[i+1:]
+			}
+			s.events.Append("out", group, filename, peerName, info.Size())
+		}
 		http.ServeFile(w, r, absPath)
 
 	case http.MethodPut:
+		groupName := strings.SplitN(virtualPath, "/", 2)[0]
+		for _, g := range s.getSyncs() {
+			if g.Name == groupName && g.Paused {
+				http.Error(w, "group is paused", http.StatusConflict)
+				return
+			}
+		}
 		destPath, err := s.routeIncoming(virtualPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -203,6 +231,21 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("transfer: received %s", virtualPath)
+		if s.events != nil {
+			peerName := r.Header.Get("X-RetroSync-Name")
+			if peerName == "" {
+				peerName = r.Header.Get("X-RetroSync-ID")
+			}
+			var size int64
+			if info, err := os.Stat(destPath); err == nil {
+				size = info.Size()
+			}
+			group, filename := "", virtualPath
+			if i := strings.Index(virtualPath, "/"); i >= 0 {
+				group, filename = virtualPath[:i], virtualPath[i+1:]
+			}
+			s.events.Append("in", group, filename, peerName, size)
+		}
 		writeJSON(w, map[string]string{"status": "ok"})
 
 	default:
@@ -248,20 +291,64 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGroupByName(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	name := strings.TrimPrefix(r.URL.Path, "/api/config/groups/")
 	if name == "" {
 		http.Error(w, "group name required", http.StatusBadRequest)
 		return
 	}
-	if err := s.removeGroup(name); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	switch r.Method {
+	case http.MethodDelete:
+		if err := s.removeGroup(name); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]string{"status": "ok"})
+	case http.MethodPatch:
+		var body struct {
+			Paused bool `json:"paused"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if err := s.pauseGroup(name, body.Paused); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]string{"status": "ok"})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleServerConfig(w http.ResponseWriter, r *http.Request) {
+	if s.getServerSyncs == nil {
+		http.Error(w, "not available", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, map[string]string{"status": "ok"})
+	syncs, err := s.getServerSyncs()
+	if err != nil {
+		http.Error(w, "could not reach server", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, syncs)
+}
+
+func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
+	after := -1
+	if v := r.URL.Query().Get("after"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			after = n
+		}
+	}
+	var entries []SyncEvent
+	if s.events != nil {
+		entries = s.events.Since(after)
+	}
+	if entries == nil {
+		entries = []SyncEvent{}
+	}
+	writeJSON(w, entries)
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

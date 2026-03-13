@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"retrosync/internal/config"
 	"retrosync/internal/index"
 )
 
@@ -90,6 +91,23 @@ func (c *Client) FetchStatus(addr string, port int) (string, error) {
 		return "", err
 	}
 	return s.Name, nil
+}
+
+// FetchSyncs retrieves the remote node's sync group configuration.
+func (c *Client) FetchSyncs(addr string, port int) ([]config.SyncGroup, error) {
+	u := &url.URL{Scheme: "http", Host: fmt.Sprintf("%s:%d", addr, port), Path: "/api/config"}
+	req, _ := http.NewRequest(http.MethodGet, u.String(), nil)
+	c.addIdentity(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned %s", resp.Status)
+	}
+	var syncs []config.SyncGroup
+	return syncs, json.NewDecoder(resp.Body).Decode(&syncs)
 }
 
 // FetchFile downloads a single file from a remote peer and writes it atomically

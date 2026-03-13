@@ -22,8 +22,9 @@ type NodeConfig struct {
 
 // SyncGroup maps a named group to one or more path/pattern entries.
 type SyncGroup struct {
-	Name  string   `toml:"name"  json:"name"`
-	Paths []string `toml:"paths" json:"paths"`
+	Name   string   `toml:"name"   json:"name"`
+	Paths  []string `toml:"paths"  json:"paths"`
+	Paused bool     `toml:"paused" json:"paused"`
 }
 
 // Config is the top-level TOML config structure.
@@ -124,7 +125,7 @@ role           = "client"
 # name  = "snes-saves"
 # paths = [
 #   "J:/RetroBat/saves/snes/[*.srm]",
-#   "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]",
+#   "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]"
 # ]
 `
 
