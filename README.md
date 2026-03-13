@@ -1,7 +1,7 @@
 # RetroSync
 
 A golang file sync system that is intended to be used to sync save files between multiple Batocera or Retrobat systems. Needs to run on all systems that will be syncing their files to each other.
-I investigates using Syncthing, but ran into issues where the file structure used by Batocera differs slightly from that of Retrobat, making it difficult to share all the save files. I found no good way between Syncthings .stignore file or symbolic links to sync all of these files so that all files were shared between Batocera and Retrobat, but some files were in different folders in Retrobat than they were in Batocera.
+I investigated using Syncthing, but ran into issues where the file structure used by Batocera differs slightly from that of Retrobat, making it difficult to share all the save files. I found no good way between Syncthings .stignore file or symbolic links to sync all of these files so that all files were shared between Batocera and Retrobat, but some files were in different folders in Retrobat than they were in Batocera.
 
 ## Status
 RetroSync is currently working and has been tested with Windows PC Retrobat systems. I have built it for the Batocera systems, but have yet to deploy and test it. I believe it is feature complete and ready for use.
