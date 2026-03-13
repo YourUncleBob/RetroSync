@@ -41,8 +41,9 @@ type Node struct {
 	groups  map[string][]config.PathSpec // group name → specs
 	entries []index.SyncEntry            // flattened, for watcher + Build
 
-	mu      sync.RWMutex
-	peers   map[string]discovery.Peer
+	mu     sync.RWMutex
+	syncMu sync.Mutex // serializes periodic sync and ForceSync
+	peers  map[string]discovery.Peer
 	fileIdx index.Index
 
 	events  *transfer.EventBuffer
@@ -138,6 +139,7 @@ func (n *Node) Start() error {
 	log.Printf("indexed %d existing file(s)", len(n.fileIdx))
 
 	var getServerSyncs func() ([]config.SyncGroup, error)
+	var forceSync func(string) error
 	if n.cfg.Node.Role == "client" {
 		getServerSyncs = func() ([]config.SyncGroup, error) {
 			n.mu.RLock()
@@ -147,6 +149,12 @@ func (n *Node) Start() error {
 				return nil, fmt.Errorf("server not yet discovered")
 			}
 			return n.client.FetchSyncs(addr, port)
+		}
+		forceSync = func(group string) error {
+			if group == "" {
+				return n.ForceSyncAll()
+			}
+			return n.ForceSyncGroup(group)
 		}
 	}
 	evtBuf := transfer.NewEventBuffer()
@@ -162,6 +170,8 @@ func (n *Node) Start() error {
 		RemoveGroup:    n.RemoveGroup,
 		RegisterPeer:   n.registerPeer,
 		PauseGroup:     n.PauseGroup,
+		PauseAll:       n.PauseAllGroups,
+		ForceSync:      forceSync,
 		GetServerSyncs: getServerSyncs,
 		Events:         evtBuf,
 	})
@@ -666,13 +676,17 @@ func (n *Node) syncWithServer() {
 // periodicSyncWithServer syncs with the server immediately on startup, then
 // every 30 seconds.
 func (n *Node) periodicSyncWithServer() {
+	n.syncMu.Lock()
 	n.syncWithServer()
+	n.syncMu.Unlock()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
+			n.syncMu.Lock()
 			n.syncWithServer()
+			n.syncMu.Unlock()
 		case <-n.done:
 			return
 		}
@@ -823,6 +837,117 @@ func (n *Node) PauseGroup(name string, paused bool) error {
 		return config.Save(n.cfgPath, n.cfg)
 	}
 	return nil
+}
+
+// PauseAllGroups sets the paused state on every sync group and persists the change.
+func (n *Node) PauseAllGroups(paused bool) error {
+	n.mu.Lock()
+	for i := range n.cfg.Syncs {
+		n.cfg.Syncs[i].Paused = paused
+	}
+	n.mu.Unlock()
+	if n.cfgPath != "" {
+		return config.Save(n.cfgPath, n.cfg)
+	}
+	return nil
+}
+
+// ForceSyncGroup performs an authoritative pull from the server for a single
+// group: downloads every server file unconditionally (skipping only hash-equal
+// files) and deletes any local files in the group that are absent on the server.
+// It holds syncMu for the duration so it cannot overlap with a periodic sync.
+func (n *Node) ForceSyncGroup(name string) error {
+	n.mu.RLock()
+	addr, port := n.serverAddr, n.serverPort
+	n.mu.RUnlock()
+	if addr == "" {
+		return fmt.Errorf("server not yet discovered")
+	}
+
+	// Record pause state, then pause to block the periodic sync from touching
+	// this group while we wait for syncMu.
+	waspaused := n.isPaused(name)
+	if err := n.PauseGroup(name, true); err != nil {
+		return err
+	}
+
+	// Wait for any in-progress sync to finish, then hold the lock for our duration.
+	n.syncMu.Lock()
+	defer n.syncMu.Unlock()
+
+	serverIdx, err := n.client.FetchIndex(addr, port)
+	if err != nil {
+		n.PauseGroup(name, waspaused) //nolint:errcheck
+		return fmt.Errorf("force-sync: fetch index: %w", err)
+	}
+
+	local := n.snapshot()
+
+	// PULL PASS — download every server file for this group unconditionally.
+	prefix := name + "/"
+	for virtualPath, remoteFile := range serverIdx {
+		if !strings.HasPrefix(virtualPath, prefix) {
+			continue
+		}
+		localFile, exists := local[virtualPath]
+		if exists && localFile.Hash == remoteFile.Hash {
+			continue // already identical
+		}
+		log.Printf("force-sync: pulling %s", virtualPath)
+		if err := n.client.FetchFile(addr, port, virtualPath, n.routeIncoming); err != nil {
+			log.Printf("force-sync: pull %s failed: %v", virtualPath, err)
+			continue
+		}
+		if n.events != nil {
+			grp, fname := splitVirtualPath(virtualPath)
+			n.events.Append("in", grp, fname, n.serverName, remoteFile.Size)
+		}
+		destPath, err := n.routeIncoming(virtualPath)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(destPath)
+		if err != nil {
+			continue
+		}
+		fi, err := index.BuildFileInfo(destPath, virtualPath, info)
+		if err != nil {
+			continue
+		}
+		n.mu.Lock()
+		n.fileIdx[virtualPath] = fi
+		n.mu.Unlock()
+	}
+
+	// DELETE PASS — remove local files in this group not present on server.
+	local = n.snapshot()
+	for virtualPath, localFile := range local {
+		if !strings.HasPrefix(virtualPath, prefix) {
+			continue
+		}
+		if _, onServer := serverIdx[virtualPath]; onServer {
+			continue
+		}
+		log.Printf("force-sync: deleting local-only %s", virtualPath)
+		os.Remove(localFile.LocalPath)
+		n.mu.Lock()
+		delete(n.fileIdx, virtualPath)
+		n.mu.Unlock()
+	}
+
+	return n.PauseGroup(name, waspaused)
+}
+
+// ForceSyncAll calls ForceSyncGroup for every configured sync group.
+func (n *Node) ForceSyncAll() error {
+	groups := n.SyncGroups()
+	var firstErr error
+	for _, g := range groups {
+		if err := n.ForceSyncGroup(g.Name); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // RemoveGroup removes a sync group at runtime and persists the change to disk

@@ -16,6 +16,7 @@ func main() {
 	syncDir       := flag.String("dir", "sync", "Sync directory (legacy, used when -config is absent)")
 	port          := flag.Int("port", 9877, "HTTP server port for file transfer")
 	discoveryPort := flag.Int("discovery", 9876, "UDP port for peer discovery")
+	paused        := flag.Bool("paused", false, "start with all sync groups paused")
 	flag.Parse()
 
 	log.SetFlags(log.Ltime | log.Lmsgprefix)
@@ -42,6 +43,12 @@ func main() {
 	if *configFile == "" {
 		cfg.Node.Port = *port
 		cfg.Node.DiscoveryPort = *discoveryPort
+	}
+
+	if *paused {
+		for i := range cfg.Syncs {
+			cfg.Syncs[i].Paused = true
+		}
 	}
 
 	n, err := node.New(cfg, *configFile)

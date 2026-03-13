@@ -58,6 +58,8 @@ type Server struct {
 	removeGroup    func(name string) error
 	registerPeer   func(id, name string, port int, addr string)
 	pauseGroup     func(name string, paused bool) error
+	pauseAll       func(paused bool) error
+	forceSync      func(group string) error // nil = not available (non-client nodes)
 	getServerSyncs func() ([]config.SyncGroup, error)
 	events         *EventBuffer
 	srv            *http.Server
@@ -75,6 +77,8 @@ type ServerOpts struct {
 	RemoveGroup    func(string) error
 	RegisterPeer   func(id, name string, port int, addr string)
 	PauseGroup     func(string, bool) error
+	PauseAll       func(bool) error
+	ForceSync      func(string) error // nil = not available (non-client nodes)
 	GetServerSyncs func() ([]config.SyncGroup, error)
 	Events         *EventBuffer // nil disables /api/log
 }
@@ -92,6 +96,8 @@ func NewServer(opts ServerOpts) *Server {
 		removeGroup:    opts.RemoveGroup,
 		registerPeer:   opts.RegisterPeer,
 		pauseGroup:     opts.PauseGroup,
+		pauseAll:       opts.PauseAll,
+		forceSync:      opts.ForceSync,
 		getServerSyncs: opts.GetServerSyncs,
 		events:         opts.Events,
 	}
@@ -109,6 +115,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config/groups/", s.handleGroupByName)
 	mux.HandleFunc("/api/server/config", s.handleServerConfig)
 	mux.HandleFunc("/api/log", s.handleLog)
+	mux.HandleFunc("/api/force-sync", s.handleForceSync)
+	mux.HandleFunc("/api/pause-all", s.handlePauseAll)
 
 	s.srv = &http.Server{Addr: fmt.Sprintf(":%d", s.port), Handler: mux}
 
@@ -349,6 +357,45 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		entries = []SyncEvent{}
 	}
 	writeJSON(w, entries)
+}
+
+func (s *Server) handleForceSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.forceSync == nil {
+		http.Error(w, "not available", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		Group string `json:"group"` // empty = all groups
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if err := s.forceSync(body.Group); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handlePauseAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Paused bool `json:"paused"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := s.pauseAll(body.Paused); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
