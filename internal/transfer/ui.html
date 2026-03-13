@@ -103,7 +103,7 @@
       <textarea id="add-paths" placeholder="C:\RetroArch\saves[*.srm;*.sav]"></textarea>
     </div>
     <div>
-      <button class="btn-add" id="add-btn" onclick="addGroup()">Add Group</button>
+      <button class="btn-add" id="add-btn" onclick="addGroup()" title="Add a new sync group to the configuration">Add Group</button>
       <div class="error" id="add-error"></div>
     </div>
   </div>
@@ -230,9 +230,9 @@ function renderGroups(groups) {
   const allPaused = groups && groups.length > 0 && groups.every(g => g.paused);
   actions.innerHTML =
     (nodeRole === 'client'
-      ? `<button class="btn-force" onclick="forceSyncAll(this)">Force Sync All</button>`
+      ? `<button class="btn-force" onclick="forceSyncAll(this)" title="Download all server files and delete any local files not on the server">Force Sync All</button>`
       : '') +
-    `<button class="btn-pause-all" onclick="pauseAll(${allPaused ? 'false' : 'true'})">` +
+    `<button class="btn-pause-all" onclick="pauseAll(${allPaused ? 'false' : 'true'})" title="${allPaused ? 'Resume automatic syncing for all groups' : 'Pause automatic syncing for all groups'}">` +
       `${allPaused ? 'Unpause All' : 'Pause All'}</button>`;
 
   if (!groups || groups.length === 0) {
@@ -248,17 +248,19 @@ function renderGroups(groups) {
 
     let pauseHtml = '';
     if (serverPaused) {
-      pauseHtml = `<span class="paused-badge">paused by server</span>`;
+      pauseHtml = `<span class="paused-badge" title="This group has been paused on the server">paused by server</span>`;
     } else if (localPaused) {
       pauseHtml = `<button class="btn-unpause" onclick="setPause('${esc(g.name)}', false)"
+        title="Resume automatic syncing for this group"
         ${readOnly ? 'disabled title="Read-only: no config file"' : ''}>Unpause</button>`;
     } else {
       pauseHtml = `<button class="btn-pause" onclick="setPause('${esc(g.name)}', true)"
+        title="Pause automatic syncing for this group"
         ${readOnly ? 'disabled title="Read-only: no config file"' : ''}>Pause</button>`;
     }
 
     const forceBtnHtml = nodeRole === 'client'
-      ? `<button class="btn-force" onclick="forceSyncGroup('${esc(g.name)}', this)">Force Sync</button>`
+      ? `<button class="btn-force" onclick="forceSyncGroup('${esc(g.name)}', this)" title="Download all server files and delete any local files not on the server">Force Sync</button>`
       : '';
 
     html += `
@@ -269,6 +271,7 @@ function renderGroups(groups) {
             ${forceBtnHtml}
             ${pauseHtml}
             <button class="btn-remove" onclick="removeGroup('${esc(g.name)}')"
+              title="Remove this sync group from the configuration"
               ${readOnly ? 'disabled title="Read-only: no config file"' : ''}>Remove</button>
           </div>
         </div>
