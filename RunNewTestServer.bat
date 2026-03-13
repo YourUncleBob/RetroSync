@@ -1,3 +1,4 @@
+call buildall.bat
 cd newTest
 call CleanTestFiles.bat
 cd ..

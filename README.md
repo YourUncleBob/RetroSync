@@ -95,7 +95,14 @@ I also plan on adding a client-side command to completely refresh all save files
 retrosync -config *config filename*
 example:
     retrosync -config retrosync.toml
-The config file is a toml file and is currently required. Will be adding a feature so that config file is auto created if it does not exists
+The config file is a toml file. If not present RetroSync will be run in peer-to-peer mode, using default ports. This is currently untested.
+
+On a PC, RetroSync can also be run as a service. To do this:
+- Save the config file into C:/ProgramData/RetroSync/*configFileName*.toml
+- As an administrator:
+  - retrosync.exe -service install -config "C:/ProgramData/RetroSync/*configFileName*.toml"
+  - retrosync.exe -service start
+  - retrosync.exe -service stop - to stop the service
 
 ## Building
 I did all development in JetBrains GoLand on a Windows PC. I believe this can be built on any platform that supports golang, but I've only tried it from Windows.
@@ -126,7 +133,7 @@ Once running, a web UI can be brought up at http://localhost:9877/ui. This shows
 
 ## Next Steps
 My current plan is:
-* Look into deployment methods. On Windows, should this be setup as a service? I don't know what that looks like on a Batocera system or how to deploy and run it there. I've also never tried a web browser on Batocera before. I assume RetroSync's web view will work there, but haven't tried it.
+* Look into deployment methods for Batocera. On Windows, can currently either be run as a program or installed as a service. I don't know what that looks like on a Batocera system or how to deploy and run it there. I've also never tried a web browser on Batocera before. I assume RetroSync's web view will work there, but haven't tried it.
 * Test on Batocera platforms (I have access to Batocera PC, Batocera Raspberry PI 5)
 * Currently the syncing doesn't recursively go into folders. It only syncs files directly in specified folders. Add the ability to specify that a path should include recursion.
 * Peer-to-peer support - For my setup I want one of the machines to always be on and act as an authitative server. I want to look at adding support for serverless peer-to-peer to more closely match the Syncthing model to see how difficult that would be. I believe peer-to-peer is working (my first stab at RetroSync was peer-to-peer, I believe it still works), but it is untested.
