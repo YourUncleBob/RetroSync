@@ -1,4 +1,4 @@
-# LogWindow Feature
+# Feature: LogWindow 
 
 ## Status
 Implemented
