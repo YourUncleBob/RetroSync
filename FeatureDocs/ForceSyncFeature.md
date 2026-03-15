@@ -1,5 +1,9 @@
-**ForceSync Feature**
+# ForceSync Feature
 
+## Status
+Implemented
+
+## Description
 ForceSync is a command that can be run on any node that is running in client mode. 
 
 When run, it causes the client to:

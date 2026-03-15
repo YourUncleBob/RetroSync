@@ -1,5 +1,9 @@
-**LogWindow Feature**
+# LogWindow Feature
 
+## Status
+Implemented
+
+## Description
 The web interface will have a log window that shows each sync event after it happens
 It will use a ring buffer to show the last 10 log entries
 

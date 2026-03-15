@@ -1,5 +1,8 @@
 # Feature: Google Drive Sync
 
+## Stutus
+Not yet implemented
+
 ## Overview
 
 Add Google Drive as an optional cloud sync target for RetroSync. Google sync is a node type like client, server and P2P. It is a configuration option in the Node's role field. In Google sync mode, files are pushed up when the local copy is newer and pulled down when the Drive copy is newer, using the same mod-time / hash comparison logic that governs LAN sync today.
