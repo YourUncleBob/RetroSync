@@ -27,6 +27,7 @@ import (
 type Node struct {
 	id            string
 	name          string // human-readable name (hostname or config override)
+	version       string
 	httpPort      int
 	discoveryPort int
 
@@ -59,7 +60,7 @@ type Node struct {
 // New creates a Node from a Config. cfgPath is the path to the TOML file on
 // disk; pass "" when launched with the legacy -dir flag (disables config
 // mutation).
-func New(cfg *config.Config, cfgPath string) (*Node, error) {
+func New(cfg *config.Config, cfgPath string, version string) (*Node, error) {
 	groups, err := config.ParseAllSpecs(cfg.Syncs)
 	if err != nil {
 		return nil, err
@@ -111,6 +112,7 @@ func New(cfg *config.Config, cfgPath string) (*Node, error) {
 	n := &Node{
 		id:            id,
 		name:          name,
+		version:       version,
 		httpPort:      cfg.Node.Port,
 		discoveryPort: cfg.Node.DiscoveryPort,
 		isServer:      cfg.Node.Role == "server",
@@ -193,6 +195,7 @@ func (n *Node) Start() error {
 		if err := n.startWatcher(); err != nil {
 			return err
 		}
+		go n.pruneInactivePeers()
 		log.Printf("running as authoritative server")
 		return nil
 	}
@@ -226,6 +229,7 @@ func (n *Node) Start() error {
 	}
 
 	go n.periodicSync()
+	go n.pruneInactivePeers()
 	return nil
 }
 
@@ -301,31 +305,59 @@ func (n *Node) routeIncoming(virtualPath string) (string, error) {
 func (n *Node) registerPeer(id, name string, port int, addr string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if _, known := n.peers[id]; !known {
-		n.peers[id] = discovery.Peer{ID: id, Name: name, Addr: addr, Port: port}
+	n.peers[id] = discovery.Peer{ID: id, Name: name, Addr: addr, Port: port, LastSeen: time.Now()}
+}
+
+// pruneInactivePeers removes peers that have not sent a beacon within 15 seconds
+// (3× the 5s beacon interval). Runs as a background goroutine on server and
+// legacy P2P nodes.
+func (n *Node) pruneInactivePeers() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			threshold := time.Now().Add(-15 * time.Second)
+			n.mu.Lock()
+			for id, p := range n.peers {
+				if p.LastSeen.Before(threshold) {
+					log.Printf("discovery: client %s timed out", p.Name)
+					delete(n.peers, id)
+				}
+			}
+			n.mu.Unlock()
+		case <-n.done:
+			return
+		}
 	}
 }
 
-// onPeerDiscovered is called by discovery when a new peer is first seen (legacy P2P).
+// onPeerDiscovered is called by discovery for every beacon in legacy P2P mode.
+// It refreshes LastSeen on known peers and triggers a sync only for new ones.
 func (n *Node) onPeerDiscovered(peer discovery.Peer) {
 	n.mu.Lock()
+	_, exists := n.peers[peer.ID]
 	n.peers[peer.ID] = peer
 	n.mu.Unlock()
-	log.Printf("discovery: found peer %s at %s:%d", peer.Name, peer.Addr, peer.Port)
-	n.syncWithPeer(peer)
+	if !exists {
+		log.Printf("discovery: found peer %s at %s:%d", peer.Name, peer.Addr, peer.Port)
+		n.syncWithPeer(peer)
+	}
 }
 
-// onClientDiscovered is called by discovery in server mode. It records
-// discovered non-server peers without triggering a sync (server doesn't pull
-// from clients).
+// onClientDiscovered is called by discovery for every beacon in server mode.
+// It refreshes LastSeen on known clients and logs newly seen ones.
 func (n *Node) onClientDiscovered(peer discovery.Peer) {
 	if peer.IsServer {
 		return
 	}
 	n.mu.Lock()
+	_, exists := n.peers[peer.ID]
 	n.peers[peer.ID] = peer
 	n.mu.Unlock()
-	log.Printf("discovery: client connected %s at %s:%d", peer.Name, peer.Addr, peer.Port)
+	if !exists {
+		log.Printf("discovery: client connected %s at %s:%d", peer.Name, peer.Addr, peer.Port)
+	}
 }
 
 // onServerDiscovered is called by discovery in client mode. It captures the
@@ -731,6 +763,7 @@ func (n *Node) Status() transfer.StatusInfo {
 	return transfer.StatusInfo{
 		ID:            n.id,
 		Name:          n.name,
+		Version:       n.version,
 		HTTPPort:      n.httpPort,
 		DiscoveryPort: n.discoveryPort,
 		FileCount:     len(n.fileIdx),

@@ -12,6 +12,10 @@ import (
 	"retrosync/internal/node"
 )
 
+// version is set at build time via -ldflags "-X main.version=<value>".
+// Use: go build -ldflags "-X main.version=$(git rev-list --count HEAD)"
+var version = "dev"
+
 func main() {
 	serviceCmd    := flag.String("service", "", "Windows service control: install, uninstall, start, stop")
 	logFile       := flag.String("logfile", "", "Path to log file (default: <binary-dir>/retrosync.log when running as a service)")
@@ -35,6 +39,7 @@ func main() {
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmsgprefix)
 	log.SetPrefix("[retrosync] ")
+	log.Printf("version %s", version)
 
 	// Handle -service install/uninstall/start/stop before anything else.
 	if *serviceCmd != "" {
@@ -93,7 +98,7 @@ func main() {
 		}
 	}
 
-	n, err := node.New(cfg, *configFile)
+	n, err := node.New(cfg, *configFile, version)
 	if err != nil {
 		log.Fatalf("init error: %v", err)
 	}

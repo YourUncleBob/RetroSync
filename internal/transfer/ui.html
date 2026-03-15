@@ -71,7 +71,7 @@
 </style>
 </head>
 <body>
-<h1>RetroSync</h1>
+<h1 id="app-title">RetroSync</h1>
 <div class="refresh-info" id="refresh-info">Loading...</div>
 
 <div class="panel" id="node-panel">
@@ -179,7 +179,9 @@ function renderStatus(s) {
     </div>
   `;
 
-  document.title = 'RetroSync \u2014 ' + esc(s.name || s.id);
+  const verStr = s.version ? ' v' + esc(s.version) : '';
+  document.getElementById('app-title').textContent = 'RetroSync' + verStr;
+  document.title = 'RetroSync' + verStr + ' \u2014 ' + esc(s.name || s.id);
 
   const heading = document.getElementById('peers-heading');
   const container = document.getElementById('peers-container');

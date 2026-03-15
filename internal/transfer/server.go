@@ -36,6 +36,7 @@ type PeerInfo struct {
 type StatusInfo struct {
 	ID            string     `json:"id"`
 	Name          string     `json:"name"`
+	Version       string     `json:"version"`
 	HTTPPort      int        `json:"http_port"`
 	DiscoveryPort int        `json:"discovery_port"`
 	FileCount     int        `json:"file_count"`

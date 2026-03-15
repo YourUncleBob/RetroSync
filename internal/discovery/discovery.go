@@ -13,15 +13,17 @@ import (
 	"time"
 )
 
+
 const broadcastIP = "255.255.255.255"
 
 // Peer represents a discovered remote node.
 type Peer struct {
-	ID       string `json:"id"`
-	Name     string `json:"name,omitempty"`
-	Addr     string `json:"addr"`                // IPv4 address
-	Port     int    `json:"port"`                // HTTP server port
-	IsServer bool   `json:"is_server,omitempty"` // true when this node is the authoritative server
+	ID       string    `json:"id"`
+	Name     string    `json:"name,omitempty"`
+	Addr     string    `json:"addr"`                // IPv4 address
+	Port     int       `json:"port"`                // HTTP server port
+	IsServer bool      `json:"is_server,omitempty"` // true when this node is the authoritative server
+	LastSeen time.Time `json:"-"`                   // set locally; not transmitted in beacons
 }
 
 // Discovery handles sending and receiving peer beacons.
@@ -147,17 +149,14 @@ func (d *Discovery) listen() {
 			continue // ignore own beacon
 		}
 
+		peer.LastSeen = time.Now()
+
 		d.mu.Lock()
-		_, known := d.peers[peer.ID]
-		if !known {
-			d.peers[peer.ID] = peer
-		}
+		d.peers[peer.ID] = peer
 		d.mu.Unlock()
 
-		if !known {
-			if d.onPeer != nil {
-				go d.onPeer(peer)
-			}
+		if d.onPeer != nil {
+			go d.onPeer(peer)
 		}
 	}
 }
