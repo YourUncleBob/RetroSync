@@ -131,8 +131,8 @@ Groups can also be added, removed, or paused at runtime through the web UI or th
 
 ## Authoritative Server
 Because of my setup at home, it made the most sense for me to use an authoritative server where all clients push changes up to the server and get new files down from the server. This will allow me to do some better conflict resolution (it doesn't exist in the current version) and do things like keep older versions of the save files to restore back to should a save file somehow be damaged.
-If desired by others, I could add the ability to run peer-to-peer, like Syncthing does. In general, this was intended to sync smallish files infrequently, so it doesn't attempt to be as failsafe as Syncthing.
-I also plan on adding a client-side command to completely refresh all save files from the server, wiping out any local saves.
+RetroSync also supports legacy peer-to-peer mode (omit `role` from the config), where all nodes discover each other and sync bidirectionally. In general, this was intended to sync smallish files infrequently, so it doesn't attempt to be as failsafe as Syncthing.
+A Force Sync command is available in the web UI and API. It performs an authoritative pull from the server for a group or all groups, downloading every server file and deleting any local files not present on the server.
 
 ## Documentation
 The Docs folder contains detailed documentation for setting up RetroSync on Windows and Batocera systems. 
@@ -140,26 +140,27 @@ The Docs folder contains detailed documentation for setting up RetroSync on Wind
 ## Building
 I did all development in JetBrains GoLand on a Windows PC. I believe this can be built on any platform that supports golang, but I've only tried it from Windows.
 
+The build embeds a version number (the git commit count) via `-ldflags`.
+
 ### On PC from CMD prompt
+Use `buildall.bat` — it captures the commit count, builds all three targets, and copies the Windows binary to `retrosync.exe` in the project root:
+
+    buildall.bat
+
+Outputs: `dist\retrosync-windows-amd64.exe`, `dist\retrosync-linux-amd64`, `dist\retrosync-linux-arm64`
+
+### From Git Bash prompt
+
+    VERSION=$(git rev-list --count HEAD)
+
     PC
-    set GOOS=windows&& set GOARCH=amd64&& go build -o dist\retrosync-windows-amd64.exe .
-    
+    GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-windows-amd64.exe .
+
     Batocera X86_64
-    set GOOS=linux&& set GOARCH=amd64&& go build -o dist\retrosync-linux-amd64.exe .
+    GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-amd64 .
 
     Batocera Raspberry PI 5
-    set GOOS=linux&& set GOARCH=arm64&& go build -o dist\retrosync-linux-arm64.exe .
-
-    The buildall.bat file does all of this, and also embeds a version number into the executeable
-### From GitBash Prompt
-    PC
-    GOOS=windows GOARCH=amd64 go build -o dist/retrosync-windows-amd64.exe .
-    
-    Batocera X86_64
-    GOOS=linux GOARCH=amd64 go build -o dist/retrosync-linux-amd64.exe .
-    
-    Batocera Raspberry PI 5
-    GOOS=linux GOARCH=arm64 go build -o dist/retrosync-linux-arm64.exe .
+    GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-arm64 .
     
 ## Web Monitoring/Configuration
 Once running, a web UI can be brought up at http://localhost:9877/ui. This shows the status of the system, what it's connected to and all of the current sync groups that are defined. It also allows for new sync groups to be created.
@@ -170,6 +171,6 @@ Once running, a web UI can be brought up at http://localhost:9877/ui. This shows
 My current plan is:
 * Test on more Batocera platforms (I have access to Batocera PC, Batocera Raspberry PI 5), I have only tested on Batocera PC
 * Currently the syncing doesn't recursively go into folders. It only syncs files directly in specified folders. For my needs, this is all I need, but it may be worthwhile to add the ability to specify that a sync group should include recursion.
-* Peer-to-peer support - For my setup I want one of the machines to always be on and act as an authitative server. I want to look at adding support for serverless peer-to-peer to more closely match the Syncthing model to see how difficult that would be. I believe peer-to-peer is working (my first stab at RetroSync was peer-to-peer, I believe it still works), but it is untested.
+* Peer-to-peer support - Legacy P2P mode is implemented (omit `role` from config) but is largely untested. It works by having all nodes discover each other via UDP and sync bidirectionally.
 * I've been looking into using a Google drive to have each system just sync directly to the Google drive. It looks relatively easy to implement, but the authorization looks to be a pain. I'd either need to jump through the google approval hoops to get this app approved, and then figure out how to distribute the app with those credentials embedded, or anyone who uses the Google sync feature would need to provide their own app credentials that RetroSync would load and use 
 
