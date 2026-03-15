@@ -1,10 +1,8 @@
 # RetroSync
-
-A golang file sync system that is intended to be used to sync save files between multiple Batocera or Retrobat systems. Needs to run on all systems that will be syncing their files to each other.
-I investigated using Syncthing, but ran into issues where the file structure used by Batocera differs slightly from that of Retrobat, making it difficult to share all the save files. I found no good way between Syncthings .stignore file or symbolic links to sync all of these files so that all files were shared between Batocera and Retrobat, but some files were in different folders in Retrobat than they were in Batocera.
-
+A golang file sync system that is intended to be used to sync save files between multiple Batocera or Retrobat systems.
+Supports Batocera and Retrobat using different folders for some of the save files (where in Batocera the save files with different extensions are all in a single folder and in Retrobat they are in separate folders)
 ## Status
-RetroSync is currently working and has been tested with Windows PC Retrobat systems. I have built it for the Batocera systems, but have yet to deploy and test it. I believe it is feature complete and ready for use.
+RetroSync is currently working and has been tested with Windows PC Retrobat systems and PC Batocera. I have built it for Batocera Raspberry PI, but have not tested it.
 
 ## The problem:
 My home setup is a couple of Windows PC's running retrobat, a couple of Batocera RaspBerry PI 5's, and a Batocera PC. I want to sync save files between all of these systems.
@@ -86,24 +84,58 @@ paths = [
 ]
 ```
 
+## Sync Groups
+
+A sync group is a named collection of files that RetroSync tracks and synchronises across nodes. Every node that participates in syncing a set of files must define a sync group with the **same name**; RetroSync uses that shared name to match files between nodes even when the files live in completely different directories.
+
+### How a sync group works
+
+Each group is defined by one or more **path specs** — entries in the `paths` list of a `[[sync]]` block. A path spec points RetroSync at a directory and, optionally, a set of filename patterns:
+
+| Path spec | What is synced |
+|---|---|
+| `"path/to/dir/"` | All files directly in `dir` |
+| `"path/to/dir/[*.srm]"` | Only `.srm` files in `dir` |
+| `"path/to/dir/[*.state;*.png]"` | Files matching either pattern |
+
+Multiple path specs in the same group let you pull files **from different directories into a single logical group**. This is the key feature that handles the Batocera/Retrobat difference: a Retrobat node might map `snes-saves` to two directories (`saves/snes/` for `.srm` and `saves/snes/libretro.snes9x/` for state files), while a Batocera node maps the same group name to one directory where all those files sit together.
+
+### Virtual paths
+
+Internally, every file is identified by a **virtual path** of the form `group-name/filename` (e.g. `snes-saves/zelda.srm`). Virtual paths are what nodes compare and transfer — the local directory layout is irrelevant. When a file arrives from another node, RetroSync looks at the filename's extension and finds the first path spec in the local group whose pattern matches, then writes the file there.
+
+### Sync rules
+
+- Files are compared by **MD5 hash** and **modification time**. A file is only transferred when the remote copy has a different hash *and* a newer modification time — so identical files are never re-sent.
+- Syncing is **not recursive**. Only files directly inside a specified directory are included; subdirectories are ignored unless listed as their own path spec.
+- Groups can be **paused** individually or all at once, either from the web UI or the API. Paused groups are skipped during sync cycles.
+
+### Defining groups in config
+
+```toml
+[[sync]]
+name  = "snes-saves"
+paths = [
+    "C:/RetroBat/saves/snes/[*.srm]",
+    "C:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]"
+]
+
+[[sync]]
+name  = "nes-saves"
+paths = [
+    "C:/RetroBat/saves/nes/[*.srm;*.state;*.png]"
+]
+```
+
+Groups can also be added, removed, or paused at runtime through the web UI or the REST API without restarting RetroSync.
+
 ## Authoritative Server
 Because of my setup at home, it made the most sense for me to use an authoritative server where all clients push changes up to the server and get new files down from the server. This will allow me to do some better conflict resolution (it doesn't exist in the current version) and do things like keep older versions of the save files to restore back to should a save file somehow be damaged.
 If desired by others, I could add the ability to run peer-to-peer, like Syncthing does. In general, this was intended to sync smallish files infrequently, so it doesn't attempt to be as failsafe as Syncthing.
 I also plan on adding a client-side command to completely refresh all save files from the server, wiping out any local saves.
 
-## Running
-retrosync -config *config filename*
-example:
-    retrosync -config retrosync.toml
-
-The config file is a toml file. If no -config argument is given, RetroSync will be run in peer-to-peer mode using default ports. This is currently untested. If the file specified by -config doesn't exist, a default file will be created for client mode, with default ports.
-
-On a PC, RetroSync can also be run as a service. To do this:
-- Save the config file into C:/ProgramData/RetroSync/*configFileName*.toml
-- As an administrator:
-  - retrosync.exe -service install -config "C:/ProgramData/RetroSync/*configFileName*.toml"
-  - retrosync.exe -service start
-  - retrosync.exe -service stop - to stop the service
+## Documentation
+The Docs folder contains detailed documentation for setting up RetroSync on Windows and Batocera systems. 
 
 ## Building
 I did all development in JetBrains GoLand on a Windows PC. I believe this can be built on any platform that supports golang, but I've only tried it from Windows.
@@ -117,6 +149,8 @@ I did all development in JetBrains GoLand on a Windows PC. I believe this can be
 
     Batocera Raspberry PI 5
     set GOOS=linux&& set GOARCH=arm64&& go build -o dist\retrosync-linux-arm64.exe .
+
+    The buildall.bat file does all of this, and also embeds a version number into the executeable
 ### From GitBash Prompt
     PC
     GOOS=windows GOARCH=amd64 go build -o dist/retrosync-windows-amd64.exe .
@@ -134,8 +168,8 @@ Once running, a web UI can be brought up at http://localhost:9877/ui. This shows
 
 ## Next Steps
 My current plan is:
-* Look into deployment methods for Batocera. On Windows, can currently either be run as a program or installed as a service. I don't know what that looks like on a Batocera system or how to deploy and run it there. I've also never tried a web browser on Batocera before. I assume RetroSync's web view will work there, but haven't tried it.
-* Test on Batocera platforms (I have access to Batocera PC, Batocera Raspberry PI 5)
-* Currently the syncing doesn't recursively go into folders. It only syncs files directly in specified folders. Add the ability to specify that a path should include recursion.
+* Test on more Batocera platforms (I have access to Batocera PC, Batocera Raspberry PI 5), I have only tested on Batocera PC
+* Currently the syncing doesn't recursively go into folders. It only syncs files directly in specified folders. For my needs, this is all I need, but it may be worthwhile to add the ability to specify that a sync group should include recursion.
 * Peer-to-peer support - For my setup I want one of the machines to always be on and act as an authitative server. I want to look at adding support for serverless peer-to-peer to more closely match the Syncthing model to see how difficult that would be. I believe peer-to-peer is working (my first stab at RetroSync was peer-to-peer, I believe it still works), but it is untested.
+* I've been looking into using a Google drive to have each system just sync directly to the Google drive. It looks relatively easy to implement, but the authorization looks to be a pain. I'd either need to jump through the google approval hoops to get this app approved, and then figure out how to distribute the app with those credentials embedded, or anyone who uses the Google sync feature would need to provide their own app credentials that RetroSync would load and use 
 
