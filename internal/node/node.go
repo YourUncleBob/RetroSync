@@ -449,7 +449,7 @@ func (n *Node) onFileChanged(absPath string) {
 	n.fileIdx[virtualPath] = fi
 	n.mu.Unlock()
 
-	log.Printf("indexed: %s (sha256:%s…)", virtualPath, fi.Hash[:8])
+	log.Printf("indexed: %s (md5:%s…)", virtualPath, fi.Hash[:8])
 }
 
 // onFileRemoved drops a deleted file from the local index.
