@@ -155,7 +155,6 @@ func (d *Discovery) listen() {
 		d.mu.Unlock()
 
 		if !known {
-			log.Printf("discovery: found peer %s at %s:%d", peer.ID, peer.Addr, peer.Port)
 			if d.onPeer != nil {
 				go d.onPeer(peer)
 			}

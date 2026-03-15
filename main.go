@@ -16,11 +16,22 @@ func main() {
 	serviceCmd    := flag.String("service", "", "Windows service control: install, uninstall, start, stop")
 	logFile       := flag.String("logfile", "", "Path to log file (default: <binary-dir>/retrosync.log when running as a service)")
 	configFile    := flag.String("config", "", "Path to retrosync.toml")
+	createConfig  := flag.String("createconfig", "", "Write a default config template to the given path and exit")
 	syncDir       := flag.String("dir", "sync", "Sync directory (legacy, used when -config is absent)")
 	port          := flag.Int("port", 9877, "HTTP server port for file transfer")
 	discoveryPort := flag.Int("discovery", 9876, "UDP port for peer discovery")
 	paused        := flag.Bool("paused", false, "start with all sync groups paused")
 	flag.Parse()
+
+	// Handle -createconfig before anything else — write template and exit.
+	if *createConfig != "" {
+		if err := config.WriteDefaultConfig(*createConfig); err != nil {
+			fmt.Fprintf(os.Stderr, "[retrosync] createconfig: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("[retrosync] default config written to %s\n", *createConfig)
+		return
+	}
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmsgprefix)
 	log.SetPrefix("[retrosync] ")
@@ -59,10 +70,7 @@ func main() {
 	var cfg *config.Config
 	if *configFile != "" {
 		if _, err := os.Stat(*configFile); os.IsNotExist(err) {
-			if err := config.WriteDefaultConfig(*configFile); err != nil {
-				log.Fatalf("could not create default config: %v", err)
-			}
-			log.Printf("created default config at %s — edit it to configure sync groups", *configFile)
+			log.Fatalf("config file not found: %s — use -createconfig %s to generate a default template", *configFile, *configFile)
 		}
 		var err error
 		cfg, err = config.Load(*configFile)

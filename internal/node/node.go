@@ -157,6 +157,10 @@ func (n *Node) Start() error {
 			return n.ForceSyncGroup(group)
 		}
 	}
+	var registerPeer func(id, name string, port int, addr string)
+	if n.cfg.Node.Role != "client" {
+		registerPeer = n.registerPeer
+	}
 	evtBuf := transfer.NewEventBuffer()
 	n.events = evtBuf
 	n.server = transfer.NewServer(transfer.ServerOpts{
@@ -168,7 +172,7 @@ func (n *Node) Start() error {
 		GetSyncs:       n.SyncGroups,
 		AddGroup:       n.AddGroup,
 		RemoveGroup:    n.RemoveGroup,
-		RegisterPeer:   n.registerPeer,
+		RegisterPeer:   registerPeer,
 		PauseGroup:     n.PauseGroup,
 		PauseAll:       n.PauseAllGroups,
 		ForceSync:      forceSync,
@@ -194,20 +198,20 @@ func (n *Node) Start() error {
 	}
 
 	if n.cfg.Node.Role == "client" {
-		// Listen for server beacon; also broadcasts so future server-push is possible.
-		n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.name, n.onServerDiscovered)
-		if err := n.disc.Start(); err != nil {
-			return err
+		if n.serverAddr == "" {
+			// Server address not known — start discovery to find one via UDP broadcast.
+			n.disc = discovery.New(n.id, n.httpPort, n.discoveryPort, false, n.name, n.onServerDiscovered)
+			if err := n.disc.Start(); err != nil {
+				return err
+			}
+			log.Printf("running as client, discovering server via UDP broadcast on port %d", n.discoveryPort)
+		} else {
+			log.Printf("running as client, server %s:%d (discovery skipped)", n.serverAddr, n.serverPort)
 		}
 		if err := n.startWatcher(); err != nil {
 			return err
 		}
 		go n.periodicSyncWithServer()
-		if n.serverAddr != "" {
-			log.Printf("running as client, server %s:%d", n.serverAddr, n.serverPort)
-		} else {
-			log.Printf("running as client, discovering server via UDP broadcast on port %d", n.discoveryPort)
-		}
 		return nil
 	}
 
@@ -307,6 +311,7 @@ func (n *Node) onPeerDiscovered(peer discovery.Peer) {
 	n.mu.Lock()
 	n.peers[peer.ID] = peer
 	n.mu.Unlock()
+	log.Printf("discovery: found peer %s at %s:%d", peer.Name, peer.Addr, peer.Port)
 	n.syncWithPeer(peer)
 }
 
@@ -320,6 +325,7 @@ func (n *Node) onClientDiscovered(peer discovery.Peer) {
 	n.mu.Lock()
 	n.peers[peer.ID] = peer
 	n.mu.Unlock()
+	log.Printf("discovery: client connected %s at %s:%d", peer.Name, peer.Addr, peer.Port)
 }
 
 // onServerDiscovered is called by discovery in client mode. It captures the
