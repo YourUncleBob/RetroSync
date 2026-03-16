@@ -23,6 +23,44 @@ import (
 	"retrosync/internal/transfer"
 )
 
+// syncThrottle fires a sync immediately on the first trigger, then suppresses
+// further triggers until the cooldown period has elapsed since the last sync
+// completed.
+type syncThrottle struct {
+	mu       sync.Mutex
+	lastSync time.Time
+	cooldown time.Duration
+	runSync  func()
+}
+
+func newSyncThrottle(cooldown time.Duration, runSync func()) *syncThrottle {
+	return &syncThrottle{
+		cooldown: cooldown,
+		runSync:  runSync,
+	}
+}
+
+// trigger fires a sync immediately if the cooldown has elapsed since the last
+// sync completed. Otherwise the call is a no-op.
+func (t *syncThrottle) trigger() {
+	t.mu.Lock()
+	if time.Since(t.lastSync) < t.cooldown {
+		t.mu.Unlock()
+		log.Printf("sync: trigger suppressed (cooldown active)")
+		return
+	}
+	// Mark as running now to block concurrent triggers during the sync.
+	t.lastSync = time.Now()
+	t.mu.Unlock()
+
+	go func() {
+		t.runSync()
+		t.mu.Lock()
+		t.lastSync = time.Now()
+		t.mu.Unlock()
+	}()
+}
+
 // Node is a single participant in the sync network.
 type Node struct {
 	id            string
@@ -49,10 +87,11 @@ type Node struct {
 
 	events  *transfer.EventBuffer
 
-	disc    *discovery.Discovery
-	server  *transfer.Server
-	client  *transfer.Client
-	watcher *fsnotify.Watcher
+	disc     *discovery.Discovery
+	server   *transfer.Server
+	client   *transfer.Client
+	watcher  *fsnotify.Watcher
+	throttle *syncThrottle // nil on server/P2P nodes
 
 	done chan struct{}
 }
@@ -159,6 +198,14 @@ func (n *Node) Start() error {
 			}
 			return n.ForceSyncGroup(group)
 		}
+		n.throttle = newSyncThrottle(
+			n.cooldownDuration(),
+			func() {
+				n.syncMu.Lock()
+				n.syncWithServer()
+				n.syncMu.Unlock()
+			},
+		)
 		triggerSync = n.TriggerSync
 	}
 	var registerPeer func(id, name string, port int, addr string)
@@ -720,30 +767,42 @@ func (n *Node) syncWithServer() {
 	}
 }
 
-// TriggerSync runs a normal bidirectional sync with the server immediately,
-// blocking until it completes. Returns an error if the server has not yet
-// been discovered. Safe to call concurrently — it waits for any in-progress
-// sync to finish before starting.
+// TriggerSync fires a sync immediately if the cooldown has elapsed since the
+// last triggered sync completed, otherwise the call is suppressed. Returns
+// immediately; the sync runs in the background. Not available on server/P2P
+// nodes.
 func (n *Node) TriggerSync() error {
-	n.mu.RLock()
-	addr := n.serverAddr
-	n.mu.RUnlock()
-	if addr == "" {
-		return fmt.Errorf("server not yet discovered")
+	if n.throttle == nil {
+		return fmt.Errorf("not available")
 	}
-	n.syncMu.Lock()
-	n.syncWithServer()
-	n.syncMu.Unlock()
+	n.throttle.trigger()
 	return nil
 }
 
+// syncIntervalDuration returns the configured periodic sync interval, falling
+// back to 30 seconds if unset.
+func (n *Node) syncIntervalDuration() time.Duration {
+	if s := n.cfg.Node.SyncInterval; s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// cooldownDuration returns the configured cooldown, falling back to 2 minutes.
+func (n *Node) cooldownDuration() time.Duration {
+	if s := n.cfg.Node.SyncCooldown; s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return 120 * time.Second
+}
+
 // periodicSyncWithServer syncs with the server immediately on startup, then
-// every 30 seconds.
+// on the configured sync_interval (default 30s).
 func (n *Node) periodicSyncWithServer() {
 	n.syncMu.Lock()
 	n.syncWithServer()
 	n.syncMu.Unlock()
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(n.syncIntervalDuration())
 	defer ticker.Stop()
 	for {
 		select {

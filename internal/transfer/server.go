@@ -403,7 +403,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	writeJSON(w, map[string]string{"status": "ok"})
+	writeJSON(w, map[string]string{"status": "queued"})
 }
 
 func (s *Server) handlePauseAll(w http.ResponseWriter, r *http.Request) {

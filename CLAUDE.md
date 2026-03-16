@@ -75,3 +75,8 @@ fsnotify watches all sync group directories. On write/create events, a 500ms deb
 ### Runtime Config Mutations
 
 `AddGroup()`, `RemoveGroup()`, `PauseGroup()` on the `Node` struct mutate the running state, update the watcher, re-index as needed, and persist to the config TOML file if `cfgPath` is set.
+
+### General Rules
+- Do not commit and push changes automatically after testing. I would like to review the changes myself before commiting
+- Do not use HTML style comments in the code. Just use simple comments
+- After making a change, update verify that the README.md and all .md files in the Docs folder are accurate and update them to be accurate if they are not

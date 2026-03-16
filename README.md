@@ -38,9 +38,9 @@ It was easier to throw together RetroSync than figure out a way to get the curre
 
 ## Example config file
 
-### Retrobat
-```
-# RetroSync configuration file - Retrobat on PC
+### Retrobat (server)
+```toml
+# RetroSync configuration file - Retrobat on PC (server node)
 
 [node]
 port           = 9877
@@ -60,25 +60,28 @@ name  = "snes-saves"
 # When copying to the server, copy all .srm files from the snes folder and all .state and .png
 # files from the snes/libretro.snes9x folder
 #
-# When copying files down from the server, .srm files will be placed in the snes dfolder and
+# When copying files down from the server, .srm files will be placed in the snes folder and
 # .state and .png files in the snes/libretro.snes9x folder
 paths = [
     "J:/RetroBat/saves/snes/[*.srm]",
     "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]"
 ]
 ```
-### Batocera
-```
-# RetroSync configuration file — Batocera on any system
+### Batocera (client)
+```toml
+# RetroSync configuration file — Batocera on any system (client node)
 
 [node]
 port           = 9877
 discovery_port = 9876
 role           = "client"
+# server_addr  = "192.168.1.x"  # optional; omit to use UDP auto-discovery
+# sync_interval = 30            # seconds between periodic background syncs (default 30)
+# sync_cooldown = 120           # minimum seconds between triggered syncs (default 120)
 
 [[sync]]
 name  = "snes-saves"
-# All .srm,.state and .png files reside in the snes folder
+# All .srm, .state and .png files reside in the snes folder
 paths = [
     "/userdata/saves/snes/[*.srm;*.state;*.png]",
 ]
@@ -132,7 +135,10 @@ Groups can also be added, removed, or paused at runtime through the web UI or th
 ## Authoritative Server
 Because of my setup at home, it made the most sense for me to use an authoritative server where all clients push changes up to the server and get new files down from the server. This will allow me to do some better conflict resolution (it doesn't exist in the current version) and do things like keep older versions of the save files to restore back to should a save file somehow be damaged.
 RetroSync also supports legacy peer-to-peer mode (omit `role` from the config), where all nodes discover each other and sync bidirectionally. In general, this was intended to sync smallish files infrequently, so it doesn't attempt to be as failsafe as Syncthing.
-A Force Sync command is available in the web UI and API. It performs an authoritative pull from the server for a group or all groups, downloading every server file and deleting any local files not present on the server.
+
+A **Force Sync** command is available in the web UI and API (`POST /api/force-sync`). It performs an authoritative pull from the server for a group or all groups, downloading every server file unconditionally and deleting any local files not present on the server.
+
+A **Triggered Sync** (`POST /api/sync`) runs the same normal bidirectional pull-then-push sync as the periodic cycle, but on demand. The first call fires immediately; further calls within the cooldown window (default 2 minutes, configurable via `sync_cooldown`) are suppressed. This is designed for use by game launcher scripts — triggering a sync when a game is selected and when it exits ensures saves are always up to date at the right moments without flooding RetroSync with requests during game browsing.
 
 ## Documentation
 The Docs folder contains detailed documentation for setting up RetroSync on Windows and Batocera systems. 

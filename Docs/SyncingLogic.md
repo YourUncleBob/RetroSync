@@ -17,7 +17,7 @@ A node operates in one of three roles, set via `role` in the config file.
 | Role | Behaviour |
 |---|---|
 | `server` | Authoritative source of truth. Accepts uploads from clients; never initiates transfers. |
-| `client` | Connects to a server (via UDP discovery or a configured `server_addr`). Runs a full bidirectional sync every 30 seconds. |
+| `client` | Connects to a server (via UDP discovery or a configured `server_addr`). Runs a full bidirectional sync periodically (default every 30 seconds, configurable via `sync_interval`). |
 | `""` (legacy P2P) | No server. Every node discovers all peers via UDP and syncs with each of them. |
 
 ---
@@ -77,7 +77,8 @@ re-transferred even if their timestamps differ.
 
 ### Client/Server bidirectional sync (`syncWithServer`)
 
-Runs immediately on startup and then every 30 seconds.
+Runs immediately on startup and then on the configured `sync_interval`
+(default 30 seconds).
 
 1. **PULL pass** — iterate the server's index. Download any file where the
    server copy is newer than (or absent from) the local index.
@@ -168,24 +169,47 @@ Outside of the periodic sync cycles, RetroSync reacts to live file changes:
   debounce fires, the file is re-hashed and the in-memory index is updated.
 - `Remove` and `Rename` events immediately remove the entry from the index.
 
-This means a file saved locally will be picked up by the *next* 30-second sync
-cycle (at most ~30 seconds later) without requiring a full directory rescan.
+This means a file saved locally will be picked up by the next periodic sync
+cycle (at most `sync_interval` seconds later) without requiring a full directory
+rescan.
 
 ---
 
 ## On-Demand Sync Trigger
 
-In addition to the periodic sync, a client node can be told to run a normal bidirectional sync immediately via the HTTP API. Especially when considering a future Google File sync feature, we may not want to be querying the file system for files frequently. The current default is every 30 seconds (or when a file is written), but it may make sense to have less frequent polling and to trigger by events:
+In addition to the periodic sync, a client node can be told to run a normal
+bidirectional sync on demand via the HTTP API. Especially when considering a
+future cloud sync feature, it may make sense to reduce polling frequency and
+drive syncs primarily by events rather than time.
 
 ```
 POST /api/sync
 ```
 
-This runs exactly the same pull-then-push logic as the periodic cycle. It will
-wait for any already in-progress sync to finish before starting, so it is safe
-to call at any time. It returns `503 Service Unavailable` if the server has not
-yet been discovered, and is not available on server or legacy P2P nodes (returns
-`404`).
+This runs the same pull-then-push logic as the periodic cycle. The call returns
+immediately with `{"status":"queued"}`; the sync runs in the background. It is
+not available on server or legacy P2P nodes (returns `404`).
+
+### Throttling behaviour
+
+To prevent flooding RetroSync with sync requests (e.g. when a user browses
+through hundreds of games in a launcher), triggered syncs are throttled by a
+**cooldown**:
+
+- The **first** call fires a sync immediately.
+- Further calls within the cooldown window are silently suppressed.
+- Once the cooldown has elapsed after the last sync **completed**, the next call
+  fires immediately again.
+
+The cooldown is configured in the `[node]` section of the TOML config:
+
+```toml
+[node]
+sync_cooldown = 120   # seconds; default is 120 (2 minutes)
+```
+
+The periodic background sync is unaffected by the cooldown — it always runs on
+its own `sync_interval` timer.
 
 ### Triggering with curl
 
@@ -193,9 +217,9 @@ yet been discovered, and is not available on server or legacy P2P nodes (returns
 curl -s -X POST http://localhost:9877/api/sync
 ```
 
-A successful response:
+Response:
 ```json
-{"status":"ok"}
+{"status":"queued"}
 ```
 
 ### Why this is useful for game launchers
@@ -203,10 +227,24 @@ A successful response:
 Triggering a sync on game start and game exit is more precise than relying
 solely on the periodic timer:
 
-- **On game start** — pull the latest save from the server before the emulator launches, ensuring you never play from a stale local save. This is probably not the best use. You will pick from a list of saves before launching the game, so will want to have synced saves before you reach this point. EmulationStation offers the ability to catch more events, maybe it would make more sense to use some other event instead of game start. game-selected events happen when moving to a new game, but these can happen very frequently when scrolling through menus, so we would want to do some sort of scheduling or queueing to make sure we aren't sending sync requests too frequently. wake, resume events may be the best place to trigger a sync. We already sync when the system starts. For always on machines, a wake/resume (I don't know if both are necessary, I'm unsure when wake is called vs. resume) may be a worthwhile event to catch. RetroSYnc will support any of these, it would just mean placing a script in the correct emulationstation folder
-- **On game exit** — push your updated save immediately after the emulator closes, before the machine sleeps or the player switches systems. May not be necessary as we're already catching the file changed events and doing a sync immediately when files are changed locally.
+- **On game start** — pull the latest save from the server before the emulator
+  launches. Note: since you select a game before launching it, syncing on game
+  selection or an earlier event (e.g. wake/resume) may be more useful than
+  game start itself.
+- **On game exit** — push your updated save immediately after the emulator
+  closes, before the machine sleeps or the player switches systems. Note: since
+  RetroSync already detects local file changes via fsnotify and picks them up on
+  the next sync cycle, this may not always be necessary.
+- **On wake/resume** — for always-on machines, catching a wake or resume event
+  may be the most reliable trigger to ensure saves are current before a session.
+- **While browsing** — the first game selection fires a sync; rapid subsequent
+  selections are suppressed by the cooldown, so the server is not flooded.
 
-See https://wiki.batocera.org/launch_a_script for a complete list of events that can have scripts attached
+RetroSync will respond to any of these events — the choice of which to use
+is just a matter of placing a script in the appropriate launcher folder.
+
+See https://wiki.batocera.org/launch_a_script for a complete list of
+Batocera events that can have scripts attached.
 
 ### Batocera
 

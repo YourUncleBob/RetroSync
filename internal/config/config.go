@@ -18,6 +18,15 @@ type NodeConfig struct {
 	Role          string `toml:"role"`        // "server" or "client"; "" = legacy P2P
 	ServerAddr    string `toml:"server_addr"` // client only — "host:port" of the server
 	Name          string `toml:"name"`        // human-readable node name; defaults to hostname if empty
+
+	// SyncInterval is how often (in seconds) the periodic background sync runs.
+	// Defaults to 30 if unset or zero.
+	SyncInterval int `toml:"sync_interval"`
+
+	// SyncCooldown is the minimum number of seconds that must elapse after a
+	// triggered sync completes before another triggered sync can start.
+	// Defaults to 120 if unset or zero.
+	SyncCooldown int `toml:"sync_cooldown"`
 }
 
 // SyncGroup maps a named group to one or more path/pattern entries.
@@ -118,8 +127,10 @@ const defaultConfigTemplate = `[node]
 port           = 9877
 discovery_port = 9876
 role           = "client"
-# name         = ""              # optional; defaults to hostname
-# server_addr  = ""              # optional; omit to use UDP auto-discovery
+# name          = ""             # optional; defaults to hostname
+# server_addr   = ""             # optional; omit to use UDP auto-discovery
+# sync_interval = 30             # seconds between periodic background syncs
+# sync_cooldown = 120            # minimum seconds between triggered syncs
 
 # [[sync]]
 # name  = "snes-saves"
