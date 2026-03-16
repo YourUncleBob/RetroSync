@@ -224,79 +224,18 @@ Response:
 
 ### Why this is useful for game launchers
 
-Triggering a sync on game start and game exit is more precise than relying
+Triggering a sync on game selected and game exit is more precise than relying
 solely on the periodic timer:
 
-- **On game start** — pull the latest save from the server before the emulator
-  launches. Note: since you select a game before launching it, syncing on game
-  selection or an earlier event (e.g. wake/resume) may be more useful than
-  game start itself.
+- **On game selected** — pull the latest save from the server before the emulator launches. We want to trigger this on game selected and not on game started so that we can see and choose the correct save file before launching the game. The first game selection fires a sync; rapid subsequent
+  selections are suppressed by the cooldown, so the server is not flooded.
 - **On game exit** — push your updated save immediately after the emulator
   closes, before the machine sleeps or the player switches systems. Note: since
   RetroSync already detects local file changes via fsnotify and picks them up on
   the next sync cycle, this may not always be necessary.
-- **On wake/resume** — for always-on machines, catching a wake or resume event
-  may be the most reliable trigger to ensure saves are current before a session.
-- **While browsing** — the first game selection fires a sync; rapid subsequent
-  selections are suppressed by the cooldown, so the server is not flooded.
-
-RetroSync will respond to any of these events — the choice of which to use
-is just a matter of placing a script in the appropriate launcher folder.
 
 See https://wiki.batocera.org/launch_a_script for a complete list of
-Batocera events that can have scripts attached.
-
-### Batocera
-
-Batocera calls any executable scripts placed in `/userdata/system/scripts/`
-automatically on game events. The script receives the event name as its first
-argument (`gameStart`, `gameStop`, `systemStart`, `systemStop`).
-
-```bash
-#!/bin/bash
-# /userdata/system/scripts/retrosync.sh
-
-ACTION=$1
-
-case "$ACTION" in
-  gameStart|gameStop)
-    curl -s -X POST http://localhost:9877/api/sync
-    ;;
-esac
-```
-
-Make the script executable:
-```bash
-chmod +x /userdata/system/scripts/retrosync.sh
-```
-
-### RetroBat
-
-RetroBat (EmulationStation on Windows) supports pre- and post-launch scripts
-configured per system or globally. Scripts are placed in:
-
-```
-%RETROBAT_ROOT%\system\scripts\
-```
-
-EmulationStation calls them with similar arguments (`game-start`, `game-end`).
-A batch script example:
-
-```bat
-@echo off
-REM %RETROBAT_ROOT%\system\scripts\retrosync.bat
-
-set ACTION=%1
-
-if "%ACTION%"=="game-start" goto sync
-if "%ACTION%"=="game-end" goto sync
-goto end
-
-:sync
-curl -s -X POST http://localhost:9877/api/sync
-
-:end
-```
+Batocera events that can have scripts attached. I believe the EmulationStation section applies to RetroBat as well as Batocera.
 
 Both platforms pass additional arguments (system name, ROM path) that can be
 used to target a specific sync group if needed.
