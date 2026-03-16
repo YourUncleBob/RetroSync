@@ -60,6 +60,8 @@ func main() {
 		return
 	}
 
+	acquireSingleInstance()
+
 	// Redirect log output to a file when running as a service or when -logfile is set.
 	runningAsService := isWindowsService()
 	if runningAsService || *logFile != "" {
