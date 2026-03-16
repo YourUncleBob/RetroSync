@@ -170,3 +170,96 @@ Outside of the periodic sync cycles, RetroSync reacts to live file changes:
 
 This means a file saved locally will be picked up by the *next* 30-second sync
 cycle (at most ~30 seconds later) without requiring a full directory rescan.
+
+---
+
+## On-Demand Sync Trigger
+
+In addition to the 30-second periodic sync, a client node can be told to run a
+normal bidirectional sync immediately via the HTTP API:
+
+```
+POST /api/sync
+```
+
+This runs exactly the same pull-then-push logic as the periodic cycle. It will
+wait for any already in-progress sync to finish before starting, so it is safe
+to call at any time. It returns `503 Service Unavailable` if the server has not
+yet been discovered, and is not available on server or legacy P2P nodes (returns
+`404`).
+
+### Triggering with curl
+
+```bash
+curl -s -X POST http://localhost:9877/api/sync
+```
+
+A successful response:
+```json
+{"status":"ok"}
+```
+
+### Why this is useful for game launchers
+
+Triggering a sync on game start and game exit is more precise than relying
+solely on the periodic timer:
+
+- **On game start** — pull the latest save from the server before the emulator
+  launches, ensuring you never play from a stale local save.
+- **On game exit** — push your updated save immediately after the emulator
+  closes, before the machine sleeps or the player switches systems.
+
+### Batocera
+
+Batocera calls any executable scripts placed in `/userdata/system/scripts/`
+automatically on game events. The script receives the event name as its first
+argument (`gameStart`, `gameStop`, `systemStart`, `systemStop`).
+
+```bash
+#!/bin/bash
+# /userdata/system/scripts/retrosync.sh
+
+ACTION=$1
+
+case "$ACTION" in
+  gameStart|gameStop)
+    curl -s -X POST http://localhost:9877/api/sync
+    ;;
+esac
+```
+
+Make the script executable:
+```bash
+chmod +x /userdata/system/scripts/retrosync.sh
+```
+
+### RetroBat
+
+RetroBat (EmulationStation on Windows) supports pre- and post-launch scripts
+configured per system or globally. Scripts are placed in:
+
+```
+%RETROBAT_ROOT%\system\scripts\
+```
+
+EmulationStation calls them with similar arguments (`game-start`, `game-end`).
+A batch script example:
+
+```bat
+@echo off
+REM %RETROBAT_ROOT%\system\scripts\retrosync.bat
+
+set ACTION=%1
+
+if "%ACTION%"=="game-start" goto sync
+if "%ACTION%"=="game-end" goto sync
+goto end
+
+:sync
+curl -s -X POST http://localhost:9877/api/sync
+
+:end
+```
+
+Both platforms pass additional arguments (system name, ROM path) that can be
+used to target a specific sync group if needed.
