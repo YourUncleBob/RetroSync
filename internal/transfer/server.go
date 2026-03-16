@@ -62,6 +62,7 @@ type Server struct {
 	pauseGroup     func(name string, paused bool) error
 	pauseAll       func(paused bool) error
 	forceSync      func(group string) error // nil = not available (non-client nodes)
+	triggerSync    func() error             // nil = not available (non-client nodes)
 	getServerSyncs func() ([]config.SyncGroup, error)
 	events         *EventBuffer
 	srv            *http.Server
@@ -81,6 +82,7 @@ type ServerOpts struct {
 	PauseGroup     func(string, bool) error
 	PauseAll       func(bool) error
 	ForceSync      func(string) error // nil = not available (non-client nodes)
+	TriggerSync    func() error       // nil = not available (non-client nodes)
 	GetServerSyncs func() ([]config.SyncGroup, error)
 	Events         *EventBuffer // nil disables /api/log
 }
@@ -100,6 +102,7 @@ func NewServer(opts ServerOpts) *Server {
 		pauseGroup:     opts.PauseGroup,
 		pauseAll:       opts.PauseAll,
 		forceSync:      opts.ForceSync,
+		triggerSync:    opts.TriggerSync,
 		getServerSyncs: opts.GetServerSyncs,
 		events:         opts.Events,
 	}
@@ -118,6 +121,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/server/config", s.handleServerConfig)
 	mux.HandleFunc("/api/log", s.handleLog)
 	mux.HandleFunc("/api/force-sync", s.handleForceSync)
+	mux.HandleFunc("/api/sync", s.handleSync)
 	mux.HandleFunc("/api/pause-all", s.handlePauseAll)
 
 	s.srv = &http.Server{Addr: fmt.Sprintf(":%d", s.port), Handler: mux}
@@ -381,6 +385,22 @@ func (s *Server) handleForceSync(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body)
 	if err := s.forceSync(body.Group); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.triggerSync == nil {
+		http.Error(w, "not available", http.StatusNotFound)
+		return
+	}
+	if err := s.triggerSync(); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})

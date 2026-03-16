@@ -142,6 +142,7 @@ func (n *Node) Start() error {
 
 	var getServerSyncs func() ([]config.SyncGroup, error)
 	var forceSync func(string) error
+	var triggerSync func() error
 	if n.cfg.Node.Role == "client" {
 		getServerSyncs = func() ([]config.SyncGroup, error) {
 			n.mu.RLock()
@@ -158,6 +159,7 @@ func (n *Node) Start() error {
 			}
 			return n.ForceSyncGroup(group)
 		}
+		triggerSync = n.TriggerSync
 	}
 	var registerPeer func(id, name string, port int, addr string)
 	if n.cfg.Node.Role != "client" {
@@ -178,6 +180,7 @@ func (n *Node) Start() error {
 		PauseGroup:     n.PauseGroup,
 		PauseAll:       n.PauseAllGroups,
 		ForceSync:      forceSync,
+		TriggerSync:    triggerSync,
 		GetServerSyncs: getServerSyncs,
 		Events:         evtBuf,
 	})
@@ -715,6 +718,23 @@ func (n *Node) syncWithServer() {
 			n.events.Append("out", grp, fname, n.serverName, localFile.Size)
 		}
 	}
+}
+
+// TriggerSync runs a normal bidirectional sync with the server immediately,
+// blocking until it completes. Returns an error if the server has not yet
+// been discovered. Safe to call concurrently — it waits for any in-progress
+// sync to finish before starting.
+func (n *Node) TriggerSync() error {
+	n.mu.RLock()
+	addr := n.serverAddr
+	n.mu.RUnlock()
+	if addr == "" {
+		return fmt.Errorf("server not yet discovered")
+	}
+	n.syncMu.Lock()
+	n.syncWithServer()
+	n.syncMu.Unlock()
+	return nil
 }
 
 // periodicSyncWithServer syncs with the server immediately on startup, then
