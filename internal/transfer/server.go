@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"retrosync/internal/config"
 	"retrosync/internal/index"
@@ -238,6 +239,11 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 			os.Remove(tmpName)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
+		}
+		if modTimeStr := r.Header.Get("X-RetroSync-ModTime"); modTimeStr != "" {
+			if mt, err := time.Parse(time.RFC3339Nano, modTimeStr); err == nil {
+				os.Chtimes(destPath, mt, mt)
+			}
 		}
 		log.Printf("transfer: received %s", virtualPath)
 		if s.events != nil {

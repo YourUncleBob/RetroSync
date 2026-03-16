@@ -173,10 +173,15 @@ func (c *Client) PushFile(addr string, port int, virtualPath, localPath string) 
 		Host:   fmt.Sprintf("%s:%d", addr, port),
 		Path:   "/files/" + virtualPath,
 	}
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequest(http.MethodPut, u.String(), f)
 	if err != nil {
 		return err
 	}
+	req.Header.Set("X-RetroSync-ModTime", info.ModTime().UTC().Format(time.RFC3339Nano))
 	c.addIdentity(req)
 
 	resp, err := c.http.Do(req)
