@@ -175,8 +175,7 @@ cycle (at most ~30 seconds later) without requiring a full directory rescan.
 
 ## On-Demand Sync Trigger
 
-In addition to the 30-second periodic sync, a client node can be told to run a
-normal bidirectional sync immediately via the HTTP API:
+In addition to the periodic sync, a client node can be told to run a normal bidirectional sync immediately via the HTTP API. Especially when considering a future Google File sync feature, we may not want to be querying the file system for files frequently. The current default is every 30 seconds (or when a file is written), but it may make sense to have less frequent polling and to trigger by events:
 
 ```
 POST /api/sync
@@ -204,10 +203,10 @@ A successful response:
 Triggering a sync on game start and game exit is more precise than relying
 solely on the periodic timer:
 
-- **On game start** — pull the latest save from the server before the emulator
-  launches, ensuring you never play from a stale local save.
-- **On game exit** — push your updated save immediately after the emulator
-  closes, before the machine sleeps or the player switches systems.
+- **On game start** — pull the latest save from the server before the emulator launches, ensuring you never play from a stale local save. This is probably not the best use. You will pick from a list of saves before launching the game, so will want to have synced saves before you reach this point. EmulationStation offers the ability to catch more events, maybe it would make more sense to use some other event instead of game start. game-selected events happen when moving to a new game, but these can happen very frequently when scrolling through menus, so we would want to do some sort of scheduling or queueing to make sure we aren't sending sync requests too frequently. wake, resume events may be the best place to trigger a sync. We already sync when the system starts. For always on machines, a wake/resume (I don't know if both are necessary, I'm unsure when wake is called vs. resume) may be a worthwhile event to catch. RetroSYnc will support any of these, it would just mean placing a script in the correct emulationstation folder
+- **On game exit** — push your updated save immediately after the emulator closes, before the machine sleeps or the player switches systems. May not be necessary as we're already catching the file changed events and doing a sync immediately when files are changed locally.
+
+See https://wiki.batocera.org/launch_a_script for a complete list of events that can have scripts attached
 
 ### Batocera
 
