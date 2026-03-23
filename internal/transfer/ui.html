@@ -63,6 +63,7 @@
   .dir-in  { color: #7ec8e3; }
   .dir-out { color: #e3a87e; }
   .dir-del { color: #e07070; }
+  .dir-err { color: #e07070; }
   .log-empty { color: #444; font-style: italic; font-size: 0.85rem; padding: 0.6rem; }
   .btn-force { background: #2a1a3a; color: #c07ee3; }
   .btn-force:hover { background: #3a2050; }
@@ -409,9 +410,12 @@ async function fetchLog() {
       } else if (e.direction === 'out') {
         dirLabel = '\u2191 out';
         dirClass = 'dir-out';
-      } else {
+      } else if (e.direction === 'del') {
         dirLabel = '\u2715 del';
         dirClass = 'dir-del';
+      } else {
+        dirLabel = '\u26a0 err';
+        dirClass = 'dir-err';
       }
       tr.innerHTML =
         '<td>' + esc(ts) + '</td>' +

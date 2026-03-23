@@ -554,6 +554,13 @@ func (n *Node) onFileChanged(absPath string) {
 
 // onFileRemoved drops a deleted file from the local index.
 func (n *Node) onFileRemoved(absPath string) {
+	// If the file still exists, the Rename event came from an atomic overwrite
+	// (temp file renamed onto the destination). Leave fileIdx alone; the Create
+	// event's debounce will re-index it.
+	if _, err := os.Stat(absPath); err == nil {
+		return
+	}
+
 	virtualPath, ok := n.findVirtualPath(absPath)
 	if !ok {
 		return
@@ -649,6 +656,10 @@ func (n *Node) syncWithPeer(peer discovery.Peer) {
 		log.Printf("sync: pulling %s from %s", path, peer.ID)
 		if err := n.client.FetchFile(peer.Addr, peer.Port, path, n.routeIncoming); err != nil {
 			log.Printf("sync: pull %s failed: %v", path, err)
+			if n.events != nil {
+				grp, fname := splitVirtualPath(path)
+				n.events.Append("err", grp, fname, peer.Name, 0)
+			}
 			continue
 		}
 		if n.events != nil {
@@ -733,6 +744,9 @@ func (n *Node) syncWithServer() {
 	// PULL PASS — fetch files that are newer on the server.
 	for virtualPath, remoteFile := range serverIdx {
 		group := virtualPath[:strings.Index(virtualPath, "/")]
+		if _, ok := localRecursive[group]; !ok {
+			continue // client does not have this group configured; skip silently
+		}
 		if serverPaused[group] || n.isPaused(group) || recursiveMismatch[group] {
 			continue
 		}
@@ -747,6 +761,10 @@ func (n *Node) syncWithServer() {
 		log.Printf("sync: pulling %s from server", virtualPath)
 		if err := n.client.FetchFile(addr, port, virtualPath, n.routeIncoming); err != nil {
 			log.Printf("sync: pull %s failed: %v", virtualPath, err)
+			if n.events != nil {
+				grp, fname := splitVirtualPath(virtualPath)
+				n.events.Append("err", grp, fname, n.serverName, 0)
+			}
 			continue
 		}
 		if n.events != nil {
@@ -793,6 +811,10 @@ func (n *Node) syncWithServer() {
 		log.Printf("sync: pushing %s to server", virtualPath)
 		if err := n.client.PushFile(addr, port, virtualPath, localFile.LocalPath); err != nil {
 			log.Printf("sync: push %s failed: %v", virtualPath, err)
+			if n.events != nil {
+				grp, fname := splitVirtualPath(virtualPath)
+				n.events.Append("err", grp, fname, n.serverName, 0)
+			}
 			continue
 		}
 		if n.events != nil {
@@ -1100,6 +1122,10 @@ func (n *Node) ForceSyncGroup(name string) error {
 		log.Printf("force-sync: pulling %s", virtualPath)
 		if err := n.client.FetchFile(addr, port, virtualPath, n.routeIncoming); err != nil {
 			log.Printf("force-sync: pull %s failed: %v", virtualPath, err)
+			if n.events != nil {
+				grp, fname := splitVirtualPath(virtualPath)
+				n.events.Append("err", grp, fname, n.serverName, 0)
+			}
 			continue
 		}
 		if n.events != nil {

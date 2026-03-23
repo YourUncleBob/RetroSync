@@ -202,19 +202,27 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		absPath, ok := s.resolveLocal(virtualPath)
 		if !ok {
+			log.Printf("transfer: GET %s: not in index (404)", virtualPath)
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
 		info, err := os.Stat(absPath)
-		if err != nil || info.IsDir() {
+		if err != nil {
+			log.Printf("transfer: GET %s: stat %s failed: %v (404)", virtualPath, absPath, err)
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if info.IsDir() {
+			log.Printf("transfer: GET %s: resolves to directory %s (404)", virtualPath, absPath)
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		peerName := r.Header.Get("X-RetroSync-Name")
+		if peerName == "" {
+			peerName = r.Header.Get("X-RetroSync-ID")
+		}
+		log.Printf("transfer: serving %s to %s", virtualPath, peerName)
 		if s.events != nil {
-			peerName := r.Header.Get("X-RetroSync-Name")
-			if peerName == "" {
-				peerName = r.Header.Get("X-RetroSync-ID")
-			}
 			group, filename := "", virtualPath
 			if i := strings.Index(virtualPath, "/"); i >= 0 {
 				group, filename = virtualPath[:i], virtualPath[i+1:]
