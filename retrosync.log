@@ -1,0 +1,56 @@
+2026/03/13 16:16:05 [retrosync] node ID: 3ffd2527bd4b1b06
+2026/03/13 16:16:05 [retrosync] indexed 8 existing file(s)
+2026/03/13 16:16:05 [retrosync] transfer: HTTP server on :9877
+2026/03/13 16:16:05 [retrosync] web UI: http://localhost:9877/ui
+2026/03/13 16:16:05 [retrosync] running as authoritative server
+2026/03/13 16:17:46 [retrosync] transfer: received test-data/clientCreated.doc
+2026/03/13 16:17:46 [retrosync] transfer: received test-data/clientCreated.txt
+2026/03/13 16:17:46 [retrosync] transfer: received test-data/clientCreated2.txt
+2026/03/13 16:17:46 [retrosync] transfer: received test-data/clientCreated3.doc
+2026/03/13 16:17:47 [retrosync] indexed: test-data/clientCreated.doc (sha256:8a0b2aa2…)
+2026/03/13 16:17:47 [retrosync] indexed: test-data/clientCreated.txt (sha256:3fd08b6b…)
+2026/03/13 16:17:47 [retrosync] indexed: test-data/clientCreated2.txt (sha256:76807b66…)
+2026/03/13 16:17:47 [retrosync] indexed: test-data/clientCreated3.doc (sha256:78a6df7e…)
+2026/03/15 11:41:50 [retrosync] node ID: 4bc47eafa5494061
+2026/03/15 11:41:50 [retrosync] indexed 8 existing file(s)
+2026/03/15 11:41:50 [retrosync] transfer: HTTP server on :9877
+2026/03/15 11:41:50 [retrosync] web UI: http://localhost:9877/ui
+2026/03/15 11:41:50 [retrosync] running as authoritative server
+2026/03/15 12:23:58 [retrosync] discovery: found peer 45d4ea702de81541 at 192.168.212.208:9877
+2026/03/15 12:24:28 [retrosync] transfer: received test-data/serverCreated.txt
+2026/03/15 12:24:28 [retrosync] transfer: received test-data/serverCreated2.txt
+2026/03/15 12:24:28 [retrosync] transfer: received test-data/clientCreated.txt
+2026/03/15 12:24:28 [retrosync] transfer: received test-data/clientCreated2.txt
+2026/03/15 12:24:29 [retrosync] indexed: test-data/serverCreated.txt (md5:90b62e53…)
+2026/03/15 12:24:29 [retrosync] indexed: test-data/serverCreated2.txt (md5:a71ec083…)
+2026/03/15 12:24:29 [retrosync] indexed: test-data/clientCreated.txt (md5:acdc45c6…)
+2026/03/15 12:24:29 [retrosync] indexed: test-data/clientCreated2.txt (md5:cb685408…)
+2026/03/15 12:24:58 [retrosync] transfer: received test-data/serverCreated2.txt
+2026/03/15 12:24:58 [retrosync] transfer: received test-data/clientCreated.txt
+2026/03/15 12:24:58 [retrosync] transfer: received test-data/clientCreated2.txt
+2026/03/15 12:24:58 [retrosync] transfer: received test-data/serverCreated.txt
+2026/03/15 12:24:59 [retrosync] indexed: test-data/serverCreated2.txt (md5:a71ec083…)
+2026/03/15 12:24:59 [retrosync] indexed: test-data/clientCreated.txt (md5:acdc45c6…)
+2026/03/15 12:24:59 [retrosync] indexed: test-data/clientCreated2.txt (md5:cb685408…)
+2026/03/15 12:24:59 [retrosync] indexed: test-data/serverCreated.txt (md5:90b62e53…)
+2026/03/15 12:29:37 [retrosync] discovery: found peer c5db247f762513bb at 192.168.212.208:9877
+2026/03/15 12:30:07 [retrosync] transfer: received test-data/serverCreated2.txt
+2026/03/15 12:30:07 [retrosync] transfer: received test-data/clientCreated.txt
+2026/03/15 12:30:07 [retrosync] transfer: received test-data/clientCreated2.txt
+2026/03/15 12:30:07 [retrosync] transfer: received test-data/serverCreated.txt
+2026/03/15 12:30:08 [retrosync] indexed: test-data/serverCreated2.txt (md5:a71ec083…)
+2026/03/15 12:30:08 [retrosync] indexed: test-data/clientCreated.txt (md5:acdc45c6…)
+2026/03/15 12:30:08 [retrosync] indexed: test-data/clientCreated2.txt (md5:cb685408…)
+2026/03/15 12:30:08 [retrosync] indexed: test-data/serverCreated.txt (md5:90b62e53…)
+2026/03/16 12:04:43 [retrosync] node ID: a8b27efd2887e5d3
+2026/03/16 12:04:43 [retrosync] indexed 10 existing file(s)
+2026/03/16 12:04:43 [retrosync] transfer: HTTP server on :9877
+2026/03/16 12:04:43 [retrosync] web UI: http://localhost:9877/ui
+2026/03/16 12:04:43 [retrosync] running as authoritative server
+2026/03/16 12:05:31 [retrosync] discovery: client connected BatoceraPI at 192.168.212.218:9877
+2026/03/16 12:05:58 [retrosync] discovery: client BatoceraPI timed out
+2026/03/22 10:06:45 [retrosync] node ID: 2bca557567cee3e2
+2026/03/22 10:06:45 [retrosync] indexed 10 existing file(s)
+2026/03/22 10:06:45 [retrosync] transfer: HTTP server on :9877
+2026/03/22 10:06:45 [retrosync] web UI: http://localhost:9877/ui
+2026/03/22 10:06:45 [retrosync] running as authoritative server

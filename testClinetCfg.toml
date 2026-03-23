@@ -1,0 +1,13 @@
+[node]
+port           = 9877
+discovery_port = 9876
+role           = "client"
+# name         = ""              # optional; defaults to hostname
+# server_addr  = ""              # optional; omit to use UDP auto-discovery
+
+# [[sync]]
+# name  = "snes-saves"
+# paths = [
+#   "J:/RetroBat/saves/snes/[*.srm]",
+#   "J:/RetroBat/saves/snes/libretro.snes9x/[*.state;*.png]",
+# ]

@@ -1,6 +1,7 @@
 @echo off
 for /f %%i in ('git rev-list --count HEAD') do set VERSION=%%i
 echo Building RetroSync version %VERSION%...
+retrosync -service stop
 
 if not exist dist mkdir dist
 if exist dist\retrosync-linux-amd64 del dist\retrosync-linux-amd64
@@ -35,5 +36,8 @@ copy /Y dist\retrosync-windows-amd64.exe retrosync.exe > nul
 if exist retrosync.exe echo Copied dist\retrosync-windows-amd64.exe to retrosync.exe
 if not exist retrosync.exe echo Error copying dist\retrosync-windows-amd64.exe to retrosync.exe
 
+copy /Y retrosync.exe C:\ProgramData\RetroSync\ > nul
+if exist C:\ProgramData\RetroSync\retrosync.exe echo Copied retrosync.exe to C:/ProgramData/RetroSync
+if not exist C:\ProgramData\RetroSync\retrosync.exe echo Error copying retrosync.exe to C:/ProgramData/RetroSync
 echo Done
 

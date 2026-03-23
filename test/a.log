@@ -1,0 +1,9 @@
+15:28:42 [retrosync] node ID: 72b842e08863213b
+15:28:42 [retrosync] indexed 0 existing file(s)
+15:28:42 [retrosync] transfer: HTTP server on :9877
+15:28:42 [retrosync] syncing directory: test/sync-a
+15:28:42 [retrosync] press Ctrl+C to stop
+15:28:43 [retrosync] discovery: found peer 8d9d55db7fe11318 at 192.168.212.226:9878
+15:28:55 [retrosync] indexed: hello.txt (sha256:f7a21a8e…)
+15:29:42 [retrosync] sync: pulling world.txt from 8d9d55db7fe11318
+15:29:42 [retrosync] indexed: world.txt (sha256:40e9ba1b…)

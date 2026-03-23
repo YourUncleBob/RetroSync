@@ -46,6 +46,8 @@ type StatusInfo struct {
 	ServerPort    int        `json:"server_port,omitempty"` // client only
 	ServerName    string     `json:"server_name,omitempty"` // client only
 	Peers         []PeerInfo `json:"peers"`
+	Uptime        string     `json:"uptime"`
+	TotalSynced   int64      `json:"total_synced"`
 }
 
 // Server serves the local file index and individual files over HTTP.
@@ -64,6 +66,7 @@ type Server struct {
 	forceSync      func(group string) error // nil = not available (non-client nodes)
 	triggerSync    func() error             // nil = not available (non-client nodes)
 	getServerSyncs func() ([]config.SyncGroup, error)
+	onSyncEvent    func()        // called after each file transfer event; may be nil
 	events         *EventBuffer
 	srv            *http.Server
 }
@@ -84,6 +87,7 @@ type ServerOpts struct {
 	ForceSync      func(string) error // nil = not available (non-client nodes)
 	TriggerSync    func() error       // nil = not available (non-client nodes)
 	GetServerSyncs func() ([]config.SyncGroup, error)
+	OnSyncEvent    func()       // called after each file transfer event; may be nil
 	Events         *EventBuffer // nil disables /api/log
 }
 
@@ -104,6 +108,7 @@ func NewServer(opts ServerOpts) *Server {
 		forceSync:      opts.ForceSync,
 		triggerSync:    opts.TriggerSync,
 		getServerSyncs: opts.GetServerSyncs,
+		onSyncEvent:    opts.OnSyncEvent,
 		events:         opts.Events,
 	}
 }
@@ -206,6 +211,9 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 				group, filename = virtualPath[:i], virtualPath[i+1:]
 			}
 			s.events.Append("out", group, filename, peerName, info.Size())
+			if s.onSyncEvent != nil {
+				s.onSyncEvent()
+			}
 		}
 		http.ServeFile(w, r, absPath)
 
@@ -264,6 +272,9 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 				group, filename = virtualPath[:i], virtualPath[i+1:]
 			}
 			s.events.Append("in", group, filename, peerName, size)
+			if s.onSyncEvent != nil {
+				s.onSyncEvent()
+			}
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
 

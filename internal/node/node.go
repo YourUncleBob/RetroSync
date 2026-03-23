@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -93,6 +94,9 @@ type Node struct {
 	watcher  *fsnotify.Watcher
 	throttle *syncThrottle // nil on server/P2P nodes
 
+	startTime   time.Time
+	totalSynced atomic.Int64
+
 	done chan struct{}
 }
 
@@ -172,6 +176,7 @@ func New(cfg *config.Config, cfgPath string, version string) (*Node, error) {
 // Start indexes existing files, launches the HTTP server, and starts the
 // appropriate sync mode (server, client, or legacy P2P).
 func (n *Node) Start() error {
+	n.startTime = time.Now()
 	var err error
 	n.fileIdx, err = index.BuildFromGroups(n.entries)
 	if err != nil {
@@ -229,6 +234,7 @@ func (n *Node) Start() error {
 		ForceSync:      forceSync,
 		TriggerSync:    triggerSync,
 		GetServerSyncs: getServerSyncs,
+		OnSyncEvent:    func() { n.totalSynced.Add(1) },
 		Events:         evtBuf,
 	})
 	if err := n.server.Start(); err != nil {
@@ -555,6 +561,7 @@ func (n *Node) onFileRemoved(absPath string) {
 	if n.events != nil {
 		grp, fname := splitVirtualPath(virtualPath)
 		n.events.Append("del", grp, fname, "", existing.Size)
+		n.totalSynced.Add(1)
 	}
 }
 
@@ -638,6 +645,7 @@ func (n *Node) syncWithPeer(peer discovery.Peer) {
 		if n.events != nil {
 			grp, fname := splitVirtualPath(path)
 			n.events.Append("in", grp, fname, peer.Name, remoteFile.Size)
+			n.totalSynced.Add(1)
 		}
 
 		// Re-index the freshly downloaded file.
@@ -718,6 +726,7 @@ func (n *Node) syncWithServer() {
 		if n.events != nil {
 			grp, fname := splitVirtualPath(virtualPath)
 			n.events.Append("in", grp, fname, n.serverName, remoteFile.Size)
+			n.totalSynced.Add(1)
 		}
 
 		// Re-index the freshly downloaded file.
@@ -763,6 +772,7 @@ func (n *Node) syncWithServer() {
 		if n.events != nil {
 			grp, fname := splitVirtualPath(virtualPath)
 			n.events.Append("out", grp, fname, n.serverName, localFile.Size)
+			n.totalSynced.Add(1)
 		}
 	}
 }
@@ -851,7 +861,23 @@ func (n *Node) Status() transfer.StatusInfo {
 		ServerPort:    n.serverPort,
 		ServerName:    n.serverName,
 		Peers:         peers,
+		Uptime:        formatUptime(time.Since(n.startTime)),
+		TotalSynced:   n.totalSynced.Load(),
 	}
+}
+
+func formatUptime(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm %ds", h, m, s)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 // SyncGroups returns a copy of the currently configured sync groups.
@@ -1025,6 +1051,7 @@ func (n *Node) ForceSyncGroup(name string) error {
 		if n.events != nil {
 			grp, fname := splitVirtualPath(virtualPath)
 			n.events.Append("in", grp, fname, n.serverName, remoteFile.Size)
+			n.totalSynced.Add(1)
 		}
 		destPath, err := n.routeIncoming(virtualPath)
 		if err != nil {
@@ -1060,6 +1087,7 @@ func (n *Node) ForceSyncGroup(name string) error {
 		if n.events != nil {
 			grp, fname := splitVirtualPath(virtualPath)
 			n.events.Append("del", grp, fname, "", localFile.Size)
+			n.totalSynced.Add(1)
 		}
 	}
 

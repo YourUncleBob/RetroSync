@@ -176,6 +176,8 @@ function renderStatus(s) {
       <span class="label">HTTP port</span><span class="value">${s.http_port}</span>
       <span class="label">Discovery port</span><span class="value">${s.discovery_port}</span>
       <span class="label">Indexed files</span><span class="value">${s.file_count}</span>
+      <span class="label">Uptime</span><span class="value">${esc(s.uptime || '—')}</span>
+      <span class="label">Files synced</span><span class="value">${s.total_synced}</span>
     </div>
   `;
 

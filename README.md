@@ -169,7 +169,7 @@ Outputs: `dist\retrosync-windows-amd64.exe`, `dist\retrosync-linux-amd64`, `dist
     GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-arm64 .
     
 ## Web Monitoring/Configuration
-Once running, a web UI can be brought up at http://localhost:9877/ui. This shows the status of the system, what it's connected to and all of the current sync groups that are defined. It also allows for new sync groups to be created.
+Once running, a web UI can be brought up at http://localhost:9877/ui. This shows the status of the system, what it's connected to and all of the current sync groups that are defined. It also allows for new sync groups to be created. The Node Info panel includes uptime and a running count of files synced since the node started.
 <img alt="RetroSyncWeb" src="https://github.com/YourUncleBob/RetroSync/blob/main/images/RetroSyncWeb.png" />
 
 
