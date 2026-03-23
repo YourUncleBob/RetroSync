@@ -32,6 +32,7 @@
   .btn-unpause:hover { background: #203a4a; }
   .btn-pause:disabled, .btn-unpause:disabled { opacity: 0.4; cursor: not-allowed; }
   .paused-badge { font-size: 0.75rem; color: #888; font-style: italic; margin-left: 0.4rem; }
+  .group-file-count { font-size: 0.78rem; color: #555; font-family: monospace; margin-left: 0.5rem; }
   .group-paused .group-name { color: #888; }
   .btn-add { background: #1a3a1a; color: #70e070; padding: 0.45rem 1rem; font-size: 0.9rem; }
   .btn-add:hover { background: #204a20; }
@@ -171,12 +172,12 @@ function renderStatus(s) {
       <span class="label">Name</span><span class="value">${esc(s.name || '—')}</span>
       <span class="label">Mode</span><span class="value">${esc(modeLabel(s.role))}</span>
       <span class="label">ID</span><span class="value">${esc(s.id)}</span>
+      <span class="label">Uptime</span><span class="value">${esc(s.uptime || '—')}</span>
     </div>
     <div class="kv" style="flex:1;">
       <span class="label">HTTP port</span><span class="value">${s.http_port}</span>
       <span class="label">Discovery port</span><span class="value">${s.discovery_port}</span>
       <span class="label">Indexed files</span><span class="value">${s.file_count}</span>
-      <span class="label">Uptime</span><span class="value">${esc(s.uptime || '—')}</span>
       <span class="label">Files synced</span><span class="value">${s.total_synced}</span>
     </div>
   `;
@@ -274,7 +275,7 @@ function renderGroups(groups) {
     html += `
       <div class="group-item${isPaused ? ' group-paused' : ''}">
         <div class="group-header">
-          <span class="group-name">${esc(g.name)}</span>
+          <span class="group-name">${esc(g.name)}</span><span class="group-file-count">${g.file_count} file${g.file_count === 1 ? '' : 's'}</span>
           <div style="display:flex;gap:0.4rem;align-items:center;">
             ${forceBtnHtml}
             ${pauseHtml}

@@ -225,7 +225,7 @@ func (n *Node) Start() error {
 		ResolveLocal:   n.resolveLocal,
 		RouteIncoming:  n.routeIncoming,
 		GetStatus:      n.Status,
-		GetSyncs:       n.SyncGroups,
+		GetSyncs:       n.SyncGroupsWithCounts,
 		AddGroup:       n.AddGroup,
 		RemoveGroup:    n.RemoveGroup,
 		RegisterPeer:   registerPeer,
@@ -886,6 +886,31 @@ func (n *Node) SyncGroups() []config.SyncGroup {
 	defer n.mu.RUnlock()
 	result := make([]config.SyncGroup, len(n.cfg.Syncs))
 	copy(result, n.cfg.Syncs)
+	return result
+}
+
+// SyncGroupsWithCounts returns the current sync groups annotated with
+// per-group indexed file counts.
+func (n *Node) SyncGroupsWithCounts() []transfer.SyncGroupInfo {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	counts := make(map[string]int, len(n.cfg.Syncs))
+	for virtualPath := range n.fileIdx {
+		if i := strings.Index(virtualPath, "/"); i > 0 {
+			counts[virtualPath[:i]]++
+		}
+	}
+
+	result := make([]transfer.SyncGroupInfo, len(n.cfg.Syncs))
+	for i, sg := range n.cfg.Syncs {
+		result[i] = transfer.SyncGroupInfo{
+			Name:      sg.Name,
+			Paths:     sg.Paths,
+			Paused:    sg.Paused,
+			FileCount: counts[sg.Name],
+		}
+	}
 	return result
 }
 

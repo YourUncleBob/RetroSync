@@ -50,6 +50,14 @@ type StatusInfo struct {
 	TotalSynced   int64      `json:"total_synced"`
 }
 
+// SyncGroupInfo describes a sync group with its current runtime file count.
+type SyncGroupInfo struct {
+	Name      string   `json:"name"`
+	Paths     []string `json:"paths"`
+	Paused    bool     `json:"paused"`
+	FileCount int      `json:"file_count"`
+}
+
 // Server serves the local file index and individual files over HTTP.
 type Server struct {
 	resolveLocal   func(virtualPath string) (absPath string, ok bool)
@@ -57,7 +65,7 @@ type Server struct {
 	port           int
 	getIndex       func() index.Index
 	getStatus      func() StatusInfo
-	getSyncs       func() []config.SyncGroup
+	getSyncs       func() []SyncGroupInfo
 	addGroup       func(name string, paths []string) error
 	removeGroup    func(name string) error
 	registerPeer   func(id, name string, port int, addr string)
@@ -78,7 +86,7 @@ type ServerOpts struct {
 	ResolveLocal   func(string) (string, bool)
 	RouteIncoming  func(string) (string, error)
 	GetStatus      func() StatusInfo
-	GetSyncs       func() []config.SyncGroup
+	GetSyncs       func() []SyncGroupInfo
 	AddGroup       func(string, []string) error
 	RemoveGroup    func(string) error
 	RegisterPeer   func(id, name string, port int, addr string)
