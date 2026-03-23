@@ -97,11 +97,15 @@ func hashFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
 
 	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
+	_, err = io.Copy(h, f)
+	cerr := f.Close()
+	if err != nil {
 		return "", err
+	}
+	if cerr != nil {
+		return "", cerr
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
