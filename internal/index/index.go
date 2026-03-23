@@ -29,35 +29,6 @@ type SyncEntry struct {
 	Patterns  []string
 }
 
-// Build walks root and returns a full index of all files.
-func Build(root string) (Index, error) {
-	idx := make(Index)
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info.IsDir() {
-			if path == root {
-				return nil
-			}
-			return filepath.SkipDir
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-
-		fi, err := BuildFileInfo(path, rel, info)
-		if err != nil {
-			return nil // skip unreadable files
-		}
-		idx[rel] = fi
-		return nil
-	})
-	return idx, err
-}
-
 // BuildFromGroups builds an Index from a set of SyncEntries. Virtual paths are
 // "<group-name>/<filename>". Only files matching entry.Patterns are included.
 func BuildFromGroups(entries []SyncEntry) (Index, error) {
