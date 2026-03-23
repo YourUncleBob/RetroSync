@@ -112,6 +112,10 @@ func New(cfg *config.Config, cfgPath string, version string) (*Node, error) {
 	// Flatten groups into SyncEntries and ensure each dir exists.
 	var entries []index.SyncEntry
 	for _, sg := range cfg.Syncs {
+		if sg.Recursive && len(sg.Paths) != 1 {
+			log.Printf("config: group %q has recursive=true but %d paths specified; group will not be activated", sg.Name, len(sg.Paths))
+			continue
+		}
 		specs := groups[sg.Name]
 		for _, ps := range specs {
 			if err := os.MkdirAll(ps.Dir, 0755); err != nil {
@@ -121,6 +125,7 @@ func New(cfg *config.Config, cfgPath string, version string) (*Node, error) {
 				GroupName: sg.Name,
 				Dir:       ps.Dir,
 				Patterns:  ps.Patterns,
+				Recursive: sg.Recursive,
 			})
 		}
 	}
@@ -340,14 +345,15 @@ func (n *Node) routeIncoming(virtualPath string) (string, error) {
 		return "", fmt.Errorf("unknown group %q", group)
 	}
 
+	baseName := filepath.Base(filename)
 	for _, ps := range specs {
 		for _, pat := range ps.Patterns {
 			if pat == "*" {
-				return filepath.Join(ps.Dir, filename), nil
+				return filepath.Join(ps.Dir, filepath.FromSlash(filename)), nil
 			}
-			matched, err := filepath.Match(pat, filename)
+			matched, err := filepath.Match(pat, baseName)
 			if err == nil && matched {
-				return filepath.Join(ps.Dir, filename), nil
+				return filepath.Join(ps.Dir, filepath.FromSlash(filename)), nil
 			}
 		}
 	}
@@ -568,22 +574,25 @@ func (n *Node) onFileRemoved(absPath string) {
 // findVirtualPath finds the virtual path for an absolute file path by matching
 // it against all entries.
 func (n *Node) findVirtualPath(absPath string) (string, bool) {
+	absPath = filepath.Clean(absPath)
 	name := filepath.Base(absPath)
 	for _, entry := range n.entries {
-		// Check if the file is directly inside entry.Dir (not subdirs).
-		dir := filepath.Clean(entry.Dir)
-		fileDir := filepath.Dir(filepath.Clean(absPath))
-		if fileDir != dir {
+		if entry.Recursive {
+			rel, err := filepath.Rel(entry.Dir, absPath)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				continue
+			}
+			if !index.MatchesAny(name, entry.Patterns) {
+				continue
+			}
+			return entry.GroupName + "/" + filepath.ToSlash(rel), true
+		}
+		// Flat mode: file must be directly inside entry.Dir.
+		if filepath.Dir(absPath) != filepath.Clean(entry.Dir) {
 			continue
 		}
-		for _, pat := range entry.Patterns {
-			if pat == "*" {
-				return entry.GroupName + "/" + name, true
-			}
-			matched, err := filepath.Match(pat, name)
-			if err == nil && matched {
-				return entry.GroupName + "/" + name, true
-			}
+		if index.MatchesAny(name, entry.Patterns) {
+			return entry.GroupName + "/" + name, true
 		}
 	}
 	return "", false
@@ -687,13 +696,30 @@ func (n *Node) syncWithServer() {
 		}
 	}
 
+	localRecursive := map[string]bool{}
+	n.mu.RLock()
+	for _, g := range n.cfg.Syncs {
+		localRecursive[g.Name] = g.Recursive
+	}
+	n.mu.RUnlock()
+
 	serverPaused := map[string]bool{}
+	serverRecursive := map[string]bool{}
 	if serverSyncs, err := n.client.FetchSyncs(addr, port); err == nil {
 		for _, g := range serverSyncs {
 			serverPaused[g.Name] = g.Paused
+			serverRecursive[g.Name] = g.Recursive
 		}
 	} else {
 		log.Printf("sync: could not fetch server syncs: %v", err)
+	}
+
+	recursiveMismatch := map[string]bool{}
+	for name, srvRecursive := range serverRecursive {
+		if localR, exists := localRecursive[name]; exists && localR != srvRecursive {
+			log.Printf("sync: group %q: recursive flag mismatch (local=%v server=%v); skipping group", name, localR, srvRecursive)
+			recursiveMismatch[name] = true
+		}
 	}
 
 	serverIdx, err := n.client.FetchIndex(addr, port)
@@ -707,7 +733,7 @@ func (n *Node) syncWithServer() {
 	// PULL PASS — fetch files that are newer on the server.
 	for virtualPath, remoteFile := range serverIdx {
 		group := virtualPath[:strings.Index(virtualPath, "/")]
-		if serverPaused[group] || n.isPaused(group) {
+		if serverPaused[group] || n.isPaused(group) || recursiveMismatch[group] {
 			continue
 		}
 		localFile, exists := local[virtualPath]
@@ -753,7 +779,7 @@ func (n *Node) syncWithServer() {
 	// PUSH PASS — upload files that are newer locally.
 	for virtualPath, localFile := range local {
 		group := virtualPath[:strings.Index(virtualPath, "/")]
-		if serverPaused[group] || n.isPaused(group) {
+		if serverPaused[group] || n.isPaused(group) || recursiveMismatch[group] {
 			continue
 		}
 		remoteFile, exists := serverIdx[virtualPath]
@@ -909,6 +935,7 @@ func (n *Node) SyncGroupsWithCounts() []transfer.SyncGroupInfo {
 			Paths:     sg.Paths,
 			Paused:    sg.Paused,
 			FileCount: counts[sg.Name],
+			Recursive: sg.Recursive,
 		}
 	}
 	return result
@@ -943,6 +970,8 @@ func (n *Node) AddGroup(name string, paths []string) error {
 		}
 	}
 
+	// Note: recursive flag cannot be set via AddGroup (HTTP API); it requires
+	// editing the config file directly. Groups added here are always flat.
 	n.cfg.Syncs = append(n.cfg.Syncs, config.SyncGroup{Name: name, Paths: paths})
 	n.groups[name] = specs
 

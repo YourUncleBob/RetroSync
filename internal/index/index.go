@@ -27,10 +27,12 @@ type SyncEntry struct {
 	GroupName string
 	Dir       string
 	Patterns  []string
+	Recursive bool
 }
 
 // BuildFromGroups builds an Index from a set of SyncEntries. Virtual paths are
-// "<group-name>/<filename>". Only files matching entry.Patterns are included.
+// "<group-name>/<filename>" for flat entries and "<group-name>/<rel/path>" for
+// recursive entries. Only files matching entry.Patterns are included.
 func BuildFromGroups(entries []SyncEntry) (Index, error) {
 	idx := make(Index)
 	for _, entry := range entries {
@@ -42,13 +44,25 @@ func BuildFromGroups(entries []SyncEntry) (Index, error) {
 				if path == entry.Dir {
 					return nil // enter the root dir itself
 				}
-				return filepath.SkipDir // skip all subdirectories
+				if !entry.Recursive {
+					return filepath.SkipDir
+				}
+				return nil // descend into subdirectory
 			}
-			name := filepath.Base(path)
-			if !matchesAny(name, entry.Patterns) {
+			baseName := filepath.Base(path)
+			if !MatchesAny(baseName, entry.Patterns) {
 				return nil
 			}
-			virtualPath := entry.GroupName + "/" + name
+			var virtualPath string
+			if entry.Recursive {
+				rel, err := filepath.Rel(entry.Dir, path)
+				if err != nil {
+					return nil
+				}
+				virtualPath = entry.GroupName + "/" + filepath.ToSlash(rel)
+			} else {
+				virtualPath = entry.GroupName + "/" + baseName
+			}
 			fi, err := BuildFileInfo(path, virtualPath, info)
 			if err != nil {
 				return nil // skip unreadable files
@@ -63,8 +77,8 @@ func BuildFromGroups(entries []SyncEntry) (Index, error) {
 	return idx, nil
 }
 
-// matchesAny reports whether name matches any of the given patterns.
-func matchesAny(name string, patterns []string) bool {
+// MatchesAny reports whether name matches any of the given patterns.
+func MatchesAny(name string, patterns []string) bool {
 	for _, pat := range patterns {
 		if pat == "*" {
 			return true

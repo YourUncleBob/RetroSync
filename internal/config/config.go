@@ -31,9 +31,10 @@ type NodeConfig struct {
 
 // SyncGroup maps a named group to one or more path/pattern entries.
 type SyncGroup struct {
-	Name   string   `toml:"name"   json:"name"`
-	Paths  []string `toml:"paths"  json:"paths"`
-	Paused bool     `toml:"paused" json:"paused"`
+	Name      string   `toml:"name"      json:"name"`
+	Paths     []string `toml:"paths"     json:"paths"`
+	Paused    bool     `toml:"paused"    json:"paused"`
+	Recursive bool     `toml:"recursive" json:"recursive"`
 }
 
 // Config is the top-level TOML config structure.

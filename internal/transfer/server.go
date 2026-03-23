@@ -56,6 +56,7 @@ type SyncGroupInfo struct {
 	Paths     []string `json:"paths"`
 	Paused    bool     `json:"paused"`
 	FileCount int      `json:"file_count"`
+	Recursive bool     `json:"recursive"`
 }
 
 // Server serves the local file index and individual files over HTTP.
