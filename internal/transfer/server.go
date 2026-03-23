@@ -232,7 +232,14 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 				s.onSyncEvent()
 			}
 		}
-		http.ServeFile(w, r, absPath)
+		f, err := os.Open(absPath)
+		if err != nil {
+			log.Printf("transfer: GET %s: open failed: %v", virtualPath, err)
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		http.ServeContent(w, r, filepath.Base(absPath), info.ModTime(), f)
 
 	case http.MethodPut:
 		groupName := strings.SplitN(virtualPath, "/", 2)[0]
