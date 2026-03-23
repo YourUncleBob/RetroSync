@@ -33,8 +33,14 @@ type SyncEntry struct {
 func Build(root string) (Index, error) {
 	idx := make(Index)
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
 			return nil
+		}
+		if info.IsDir() {
+			if path == root {
+				return nil
+			}
+			return filepath.SkipDir
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
@@ -58,8 +64,14 @@ func BuildFromGroups(entries []SyncEntry) (Index, error) {
 	idx := make(Index)
 	for _, entry := range entries {
 		err := filepath.Walk(entry.Dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
+			if err != nil {
 				return nil
+			}
+			if info.IsDir() {
+				if path == entry.Dir {
+					return nil // enter the root dir itself
+				}
+				return filepath.SkipDir // skip all subdirectories
 			}
 			name := filepath.Base(path)
 			if !matchesAny(name, entry.Patterns) {
