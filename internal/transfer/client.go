@@ -113,6 +113,11 @@ func (c *Client) FetchSyncs(addr string, port int) ([]config.SyncGroup, error) {
 // FetchFile downloads a single file from a remote peer and writes it atomically
 // to the path returned by resolver(virtualPath), creating intermediate dirs as needed.
 func (c *Client) FetchFile(addr string, port int, virtualPath string, resolver func(string) (string, error)) error {
+	destPath, err := resolver(virtualPath)
+	if err != nil {
+		return fmt.Errorf("route %s: %w", virtualPath, err)
+	}
+
 	u := &url.URL{
 		Scheme: "http",
 		Host:   fmt.Sprintf("%s:%d", addr, port),
@@ -132,11 +137,6 @@ func (c *Client) FetchFile(addr string, port int, virtualPath string, resolver f
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned %s for %s", resp.Status, virtualPath)
-	}
-
-	destPath, err := resolver(virtualPath)
-	if err != nil {
-		return fmt.Errorf("route %s: %w", virtualPath, err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
