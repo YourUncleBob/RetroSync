@@ -38,6 +38,8 @@ It was easier to throw together RetroSync than figure out a way to get the curre
 
 ## Example config file
 
+> **Tip:** Run `retrosync -createconfig retrosync.toml` to generate a starter config file with all options commented.
+
 ### Retrobat (server)
 ```toml
 # RetroSync configuration file - Retrobat on PC (server node)
@@ -105,12 +107,12 @@ Multiple path specs in the same group let you pull files **from different direct
 
 ### Virtual paths
 
-Internally, every file is identified by a **virtual path** of the form `group-name/filename` (e.g. `snes-saves/zelda.srm`). Virtual paths are what nodes compare and transfer — the local directory layout is irrelevant. When a file arrives from another node, RetroSync looks at the filename's extension and finds the first path spec in the local group whose pattern matches, then writes the file there.
+Internally, every file is identified by a **virtual path** of the form `group-name/filename` (e.g. `snes-saves/zelda.srm`). In recursive groups, subdirectory components are preserved: `group-name/subdir/filename` (e.g. `snes-saves/libretro.snes9x/zelda.state`). Virtual paths are what nodes compare and transfer — the local directory layout is irrelevant. When a file arrives from another node, RetroSync looks at the filename's extension and finds the first path spec in the local group whose pattern matches, then writes the file there.
 
 ### Sync rules
 
 - Files are compared by **MD5 hash** and **modification time**. A file is only transferred when the remote copy has a different hash *and* a newer modification time — so identical files are never re-sent.
-- Syncing is **not recursive**. Only files directly inside a specified directory are included; subdirectories are ignored unless listed as their own path spec.
+- By default, syncing is **not recursive** — only files directly inside a specified directory are included. Set `recursive = true` on a sync group to walk all subdirectories. A recursive group must define exactly one path spec.
 - Groups can be **paused** individually or all at once, either from the web UI or the API. Paused groups are skipped during sync cycles.
 
 ### Defining groups in config
@@ -130,6 +132,15 @@ paths = [
 ]
 ```
 
+When a single directory holds all files (including subdirectories), use `recursive = true`. This requires exactly one path spec and virtual paths will include subdirectory names:
+
+```toml
+[[sync]]
+name      = "snes-saves"
+recursive = true
+paths     = ["/userdata/saves/snes/[*.srm;*.state;*.png]"]
+```
+
 Groups can also be added, removed, or paused at runtime through the web UI or the REST API without restarting RetroSync.
 
 ## Authoritative Server
@@ -147,6 +158,10 @@ The Docs folder contains detailed documentation for setting up RetroSync on Wind
 I did all development in JetBrains GoLand on a Windows PC. I believe this can be built on any platform that supports golang, but I've only tried it from Windows.
 
 The build embeds a version number (the git commit count) via `-ldflags`.
+
+To generate a starter config file, run the built binary with `-createconfig`:
+
+    retrosync -createconfig retrosync.toml
 
 ### On PC from CMD prompt
 Use `buildall.bat` — it captures the commit count, builds all three targets, and copies the Windows binary to `retrosync.exe` in the project root:
@@ -168,6 +183,17 @@ Outputs: `dist\retrosync-windows-amd64.exe`, `dist\retrosync-linux-amd64`, `dist
     Batocera Raspberry PI 5
     GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-arm64 .
     
+## Windows Service
+
+On Windows, RetroSync can be installed as a service so it starts automatically at boot without a console window. See [Docs/WindowsServiceSetup.md](Docs/WindowsServiceSetup.md) for full instructions. Quick reference (run as Administrator):
+
+    retrosync.exe -service install -config "C:\ProgramData\RetroSync\retrosync.toml"
+    retrosync.exe -service start
+    retrosync.exe -service stop
+    retrosync.exe -service uninstall
+
+When running as a service, logs are written to `retrosync.log` in the same directory as the binary (override with `-logfile`).
+
 ## Web Monitoring/Configuration
 Once running, a web UI can be brought up at http://localhost:9877/ui. This shows the status of the system, what it's connected to and all of the current sync groups that are defined. It also allows for new sync groups to be created. The Node Info panel includes uptime and a running count of files synced since the node started.
 <img alt="RetroSyncWeb" src="https://github.com/YourUncleBob/RetroSync/blob/main/images/RetroSyncWeb.png" />
@@ -176,7 +202,6 @@ Once running, a web UI can be brought up at http://localhost:9877/ui. This shows
 ## Next Steps
 My current plan is:
 * Test on more Batocera platforms (I have access to Batocera PC, Batocera Raspberry PI 5), I have only tested on Batocera PC
-* Currently the syncing doesn't recursively go into folders. It only syncs files directly in specified folders. For my needs, this is all I need, but it may be worthwhile to add the ability to specify that a sync group should include recursion.
 * Peer-to-peer support - Legacy P2P mode is implemented (omit `role` from config) but is largely untested. It works by having all nodes discover each other via UDP and sync bidirectionally.
-* I've been looking into using a Google drive to have each system just sync directly to the Google drive. It looks relatively easy to implement, but the authorization looks to be a pain. I'd either need to jump through the google approval hoops to get this app approved, and then figure out how to distribute the app with those credentials embedded, or anyone who uses the Google sync feature would need to provide their own app credentials that RetroSync would load and use 
+* I've been looking into using a Google drive to have each system just sync directly to the Google drive. It looks relatively easy to implement, but the authorization looks to be a pain. I'd either need to jump through the google approval hoops to get this app approved, and then figure out how to distribute the app with those credentials embedded, or anyone who uses the Google sync feature would need to provide their own app credentials that RetroSync would load and use
 

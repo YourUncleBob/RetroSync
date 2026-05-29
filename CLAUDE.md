@@ -48,21 +48,26 @@ RetroSync syncs retro gaming save files across systems with different folder str
 |---|---|
 | `internal/config` | TOML parsing, path spec parsing (`"dir/[*.srm;*.png]"` format), default config generation |
 | `internal/node` | Central orchestrator — coordinates all subsystems, owns `fileIdx` (virtual path → FileInfo), runs the 30s sync loops |
-| `internal/index` | Builds and maintains file inventory with SHA256 hashes; defines virtual paths as `"group-name/filename"` |
+| `internal/index` | Builds and maintains file inventory with MD5 hashes; defines virtual paths as `"group-name/filename"` (flat) or `"group-name/subdir/filename"` (recursive) |
 | `internal/discovery` | UDP broadcast/listen for LAN peer discovery; beacons every 5s |
 | `internal/transfer` | HTTP server (endpoints below) and HTTP client for index fetching, file download/upload |
 
 ### HTTP Endpoints (transfer/server.go)
 
 - `GET /index` — JSON file index
-- `GET /file/{group}/{filename}` — Download file
-- `PUT /file/{group}/{filename}` — Upload file (clients push here)
+- `GET /files/{group}/{filename}` — Download file
+- `PUT /files/{group}/{filename}` — Upload file (clients push here); restores original mod time from `X-RetroSync-ModTime` header
 - `GET /ui` — Web dashboard (embedded `ui.html`)
-- `GET /api/status` — Node name and status
-- `GET /api/config` — Sync group list
-- `POST /api/groups` — Add sync group at runtime
-- `DELETE /api/groups/{name}` — Remove group
-- `PATCH /api/groups/{name}/pause` — Pause/resume group
+- `GET /api/status` — Node name, version, uptime, file count, role, connected peers
+- `GET /api/config` — Sync group list with file counts
+- `GET /api/server/config` — (client only) fetch server's sync group config
+- `POST /api/config/groups` — Add sync group at runtime; body: `{"name":"…","paths":[…]}`
+- `DELETE /api/config/groups/{name}` — Remove group
+- `PATCH /api/config/groups/{name}` — Pause/resume group; body: `{"paused": true}`
+- `POST /api/pause-all` — Pause/resume all groups; body: `{"paused": true}`
+- `POST /api/force-sync` — (client only) authoritative pull from server; body: `{"group":""}` for all groups
+- `POST /api/sync` — (client only) trigger normal bidirectional sync with cooldown throttling
+- `GET /api/log` — Event buffer; supports `?after=<index>` for polling
 
 ### Sync Decision Logic
 
@@ -70,7 +75,7 @@ Files are compared by MD5 hash and modification time. A file is downloaded/uploa
 
 ### File Change Detection
 
-fsnotify watches all sync group directories. On write/create events, a 500ms debounce fires, re-indexes the file (recomputes SHA256 + mod time), and updates `fileIdx` under an RWMutex. The next sync cycle picks up the change.
+fsnotify watches all sync group directories. On write/create events, a 500ms debounce fires, re-indexes the file (recomputes MD5 + mod time), and updates `fileIdx` under an RWMutex. The next sync cycle picks up the change.
 
 ### Runtime Config Mutations
 

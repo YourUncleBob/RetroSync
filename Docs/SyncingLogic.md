@@ -27,7 +27,9 @@ A node operates in one of three roles, set via `role` in the config file.
 Before any sync can happen, each node builds an in-memory **file index** — a
 map of virtual paths to file metadata.
 
-- **Virtual path** format: `<group-name>/<filename>` (e.g. `snes/zelda.srm`)
+- **Virtual path** format:
+  - Flat group (default): `<group-name>/<filename>` (e.g. `snes-saves/zelda.srm`)
+  - Recursive group: `<group-name>/<relative-subpath>/<filename>` (e.g. `snes-saves/libretro.snes9x/zelda.state`)
 - **Metadata per file** (`FileInfo`):
   - `Hash` — MD5 of the file contents
   - `ModTime` — filesystem modification timestamp
@@ -39,6 +41,15 @@ kept up to date at runtime via **fsnotify**. When a file is written or created,
 a 500 ms debounce fires, recomputes the hash and mod time for that file, and
 updates the in-memory index under a mutex. `LocalPath` is excluded from JSON
 serialisation so peers only see the virtual metadata.
+
+### Recursive groups
+
+A sync group has an optional `recursive` boolean field (default `false`). When `true`:
+
+- The indexer walks all subdirectories of the group directory instead of stopping at the top level.
+- Virtual paths include the relative subdirectory: `group-name/subdir/filename`.
+- Exactly one path spec is allowed per recursive group; multiple path specs with `recursive = true` cause the group to be skipped.
+- Both nodes in a sync pair must agree on the recursive setting for a group. If they disagree, the group is skipped for that sync cycle and a warning is logged.
 
 ---
 
