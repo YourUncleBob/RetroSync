@@ -112,6 +112,7 @@ Internally, every file is identified by a **virtual path** of the form `group-na
 ### Sync rules
 
 - Files are compared by **MD5 hash** and **modification time**. A file is only transferred when the remote copy has a different hash *and* a newer modification time — so identical files are never re-sent.
+- When copied, files maintain the same date/time for the modification date on the destination drive as the source drive. This ensures that you always get the latest file. If you were to update the modification time to the current time when copying, you can end up overwriting actual newer versions of the file when a new client with a newer version (newer than the last modification but not newer than the time of write on server) attaches to the setrver
 - By default, syncing is **not recursive** — only files directly inside a specified directory are included. Set `recursive = true` on a sync group to walk all subdirectories. A recursive group must define exactly one path spec.
 - Groups can be **paused** individually or all at once, either from the web UI or the API. Paused groups are skipped during sync cycles.
 
