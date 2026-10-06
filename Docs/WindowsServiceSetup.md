@@ -6,7 +6,7 @@ Running RetroSync as a Windows service means it starts automatically at boot, ru
 
 ## Prerequisites
 
-- **RetroSync binary** — `retrosync-windows-amd64.exe` (rename to `retrosync.exe` for convenience)
+- **RetroSync binary** — `retrosync-windows-amd64.exe` (rename to `retrosync.exe` for convenience; `buildall.bat` makes this copy for you, see [Build.md](Build.md))
 - **Administrator access** — required for service installation
 - **A config file** — created before installing the service
 
@@ -106,6 +106,38 @@ RetroSync is now running. The web UI is available at:
 ```
 http://localhost:9877/ui
 ```
+
+---
+
+## Firewall rules
+
+A machine running as a **server** must allow inbound connections, otherwise clients cannot reach it. Windows does not add these rules automatically, and a fresh Windows install removes any rules you added earlier. Run these in an **Administrator PowerShell**:
+
+```powershell
+# HTTP — clients sync files and fetch the index over this port (required)
+New-NetFirewallRule -DisplayName "RetroSync HTTP" -Direction Inbound -Protocol TCP -LocalPort 9877 -Profile Private -Action Allow
+
+# Discovery — lets clients find the server automatically (not needed if clients set server_addr)
+New-NetFirewallRule -DisplayName "RetroSync discovery" -Direction Inbound -Protocol UDP -LocalPort 9876 -Profile Private -Action Allow
+```
+
+A machine running as a **client** needs no rule for syncing, because it only connects out to the server. However, if the client relies on auto-discovery (no `server_addr` in its config), it must allow inbound UDP 9876 so it can receive the server's discovery broadcasts. Run the UDP rule above on the client in that case, or set `server_addr` and skip it.
+
+Notes:
+
+- Use the ports from `port` and `discovery_port` in your config if you changed them from the defaults.
+- The rules above apply only to networks Windows classifies as **Private**. If your network is classified as Public, change it in Settings > Network & internet, or add `Public` to `-Profile`.
+- Discovery uses UDP broadcast on each network adapter's own subnet, so the server and client must be on the same subnet. Broadcasts do not cross routers, VPNs, or Wi-Fi networks with client isolation. If a client cannot find the server, set `server_addr` in the client config instead.
+- To check connectivity, open `http://<server-ip>:9877/api/status` in a browser on the client machine. JSON means the network path works.
+- In the legacy peer-to-peer mode (no `role`), every node needs both rules.
+
+Which rules each machine needs:
+
+| Machine | Inbound rules needed |
+|---|---|
+| Server | TCP 9877 (required), UDP 9876 (only if clients use auto-discovery) |
+| Client with `server_addr` set | None. The client skips discovery and only connects out to the server. |
+| Client without `server_addr` | UDP 9876, so it can receive the server's discovery broadcasts |
 
 ---
 

@@ -61,6 +61,13 @@ port. All nodes on the LAN hear each other's beacons and add one another to
 their peer list. Peers that have not sent a beacon within 15 seconds (3×
 interval) are pruned.
 
+Each beacon is sent separately on every up, non-loopback IPv4 network adapter,
+to that adapter's own subnet broadcast address (for example `192.168.1.255`).
+This matters on machines with several adapters, such as VMware or VPN
+adapters, where a single send to `255.255.255.255` would leave through only one
+of them. The beacon carries the address of the adapter it was sent from. If no
+adapter qualifies, it falls back to `255.255.255.255`.
+
 ### Server / Client mode
 The server broadcasts its own beacon. Clients listen for it and record the
 server's address and port on first contact. Clients also register themselves

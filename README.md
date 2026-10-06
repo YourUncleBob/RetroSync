@@ -153,12 +153,12 @@ A **Force Sync** command is available in the web UI and API (`POST /api/force-sy
 A **Triggered Sync** (`POST /api/sync`) runs the same normal bidirectional pull-then-push sync as the periodic cycle, but on demand. The first call fires immediately; further calls within the cooldown window (default 2 minutes, configurable via `sync_cooldown`) are suppressed. This is designed for use by game launcher scripts — triggering a sync when a game is selected and when it exits ensures saves are always up to date at the right moments without flooding RetroSync with requests during game browsing.
 
 ## Documentation
-The Docs folder contains detailed documentation for setting up RetroSync on Windows and Batocera systems. 
+The Docs folder contains detailed documentation for building RetroSync ([Docs/Build.md](Docs/Build.md)) and setting it up on Windows and Batocera systems.
 
 ## Building
 I did all development in JetBrains GoLand on a Windows PC. I believe this can be built on any platform that supports golang, but I've only tried it from Windows.
 
-The build embeds a version number (the git commit count) via `-ldflags`.
+The build embeds a version number (the git commit count) via `-ldflags`. See [Docs/Build.md](Docs/Build.md) for full build instructions (prerequisites, PowerShell/cmd/Git Bash commands, and deployment to Windows, Batocera PC and Batocera Raspberry Pi 5).
 
 To generate a starter config file, run the built binary with `-createconfig`:
 
@@ -176,13 +176,13 @@ Outputs: `dist\retrosync-windows-amd64.exe`, `dist\retrosync-linux-amd64`, `dist
     VERSION=$(git rev-list --count HEAD)
 
     PC
-    GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-windows-amd64.exe .
+    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-windows-amd64.exe .
 
     Batocera X86_64
-    GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-amd64 .
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-amd64 .
 
     Batocera Raspberry PI 5
-    GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-arm64 .
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/retrosync-linux-arm64 .
     
 ## Windows Service
 

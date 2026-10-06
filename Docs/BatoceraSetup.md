@@ -24,7 +24,7 @@ You will use SSH to copy files to the Batocera machine and to edit startup scrip
 | Batocera PC (x86_64) | `retrosync-linux-amd64` |
 | Raspberry Pi 5 (ARM 64-bit) | `retrosync-linux-arm64` |
 
-Download the appropriate binary from the RetroSync releases page.
+Download the appropriate binary from the RetroSync releases page, or build it yourself (see [Build.md](Build.md)).
 
 ---
 

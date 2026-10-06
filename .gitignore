@@ -8,6 +8,7 @@
 *.so
 *.dylib
 *.bat
+!buildall.bat
 
 # Test binary, built with `go test -c`
 *.test
@@ -32,13 +33,13 @@ go.work.sum
 .idea/
 # .vscode/
 
-# Built binaries
+# Built binaries (see Docs/Build.md); Windows .exe files are covered by *.exe above
 retrosync
+retrosync-linux
 retrosync-linux-amd64
 retrosync-linux-arm64
 
 #test stuff
-.idea/
 bats/
 build/
 dist/
@@ -48,3 +49,6 @@ OAuth/
 
 # Claude Code
 .claude/
+
+# Local prompts
+Prompts/

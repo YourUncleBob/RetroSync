@@ -81,21 +81,85 @@ func localIP() string {
 	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }
 
-func (d *Discovery) broadcast() {
-	addr := &net.UDPAddr{IP: net.ParseIP(broadcastIP), Port: d.discoveryPort}
-	conn, err := net.DialUDP("udp4", nil, addr)
+// broadcastTarget is one local interface address and its directed broadcast address.
+type broadcastTarget struct {
+	local net.IP
+	bcast net.IP
+}
+
+// broadcastTargets returns a target for every up, non-loopback IPv4 interface
+// address that supports broadcast. A single send to 255.255.255.255 only leaves
+// through one adapter, which may be a virtual one on machines with several.
+func broadcastTargets() []broadcastTarget {
+	var targets []broadcastTarget
+	ifaces, err := net.Interfaces()
 	if err != nil {
-		log.Printf("discovery: broadcast dial error: %v", err)
-		return
+		return nil
+	}
+	for _, ifc := range ifaces {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 || ifc.Flags&net.FlagBroadcast == 0 {
+			continue
+		}
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip4 := ipn.IP.To4()
+			mask := net.IP(ipn.Mask).To4()
+			if ip4 == nil || mask == nil || ip4.IsLinkLocalUnicast() {
+				continue
+			}
+			bcast := make(net.IP, 4)
+			for i := range bcast {
+				bcast[i] = ip4[i] | ^mask[i]
+			}
+			targets = append(targets, broadcastTarget{local: ip4, bcast: bcast})
+		}
+	}
+	return targets
+}
+
+// sendOn sends data to dst from a socket bound to the local address, so the
+// packet leaves through that interface.
+func sendOn(local net.IP, dst *net.UDPAddr, data []byte) error {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: local})
+	if err != nil {
+		return err
 	}
 	defer conn.Close()
+	_, err = conn.WriteToUDP(data, dst)
+	return err
+}
 
+func (d *Discovery) broadcast() {
 	beacon := Peer{ID: d.nodeID, Name: d.name, Port: d.httpPort, IsServer: d.isServer}
 
 	send := func() {
-		beacon.Addr = localIP()
-		data, _ := json.Marshal(beacon)
-		conn.Write(data)
+		targets := broadcastTargets()
+		for _, t := range targets {
+			// Advertise the address of the interface the beacon leaves through.
+			beacon.Addr = t.local.String()
+			data, _ := json.Marshal(beacon)
+			dst := &net.UDPAddr{IP: t.bcast, Port: d.discoveryPort}
+			if err := sendOn(t.local, dst, data); err != nil {
+				log.Printf("discovery: broadcast on %s failed: %v", t.local, err)
+			}
+		}
+		if len(targets) == 0 {
+			// Fall back to the global broadcast address.
+			beacon.Addr = localIP()
+			data, _ := json.Marshal(beacon)
+			dst := &net.UDPAddr{IP: net.ParseIP(broadcastIP), Port: d.discoveryPort}
+			if conn, err := net.DialUDP("udp4", nil, dst); err == nil {
+				conn.Write(data)
+				conn.Close()
+			}
+		}
 	}
 
 	send() // immediate first broadcast
